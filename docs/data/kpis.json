@@ -1,6 +1,6 @@
 {
   "source": "live",
-  "generated_at": "2026-08-18T14:34:11.032658+00:00",
+  "generated_at": "2026-08-18T14:35:41.731634+00:00",
   "labor_trend": [],
   "season": [],
   "rent": [
@@ -62,7 +62,7 @@
           "dir": "up",
           "targetLabel": "≥ 80 %",
           "sub": "approx. (RDV pris jour même)",
-          "streak": 3
+          "streak": 4
         },
         {
           "k": "rdv",
@@ -72,7 +72,7 @@
           "target": 60,
           "dir": "up",
           "targetLabel": "≥ 60 %",
-          "streak": 3
+          "streak": 4
         },
         {
           "k": "close",
@@ -82,7 +82,7 @@
           "target": 35,
           "dir": "up",
           "targetLabel": "35–45 %",
-          "streak": 3
+          "streak": 4
         },
         {
           "k": "deal",
@@ -92,7 +92,7 @@
           "target": 2400,
           "dir": "up",
           "targetLabel": "≥ 2 400 $",
-          "streak": 3
+          "streak": 4
         }
       ],
       "acq": [
@@ -105,7 +105,7 @@
           "dir": "down",
           "targetLabel": "17–21 $",
           "sub": "-21 % vs sem. préc.",
-          "streak": 3
+          "streak": 4
         },
         {
           "k": "cac",
@@ -116,7 +116,7 @@
           "dir": "down",
           "targetLabel": "≤ 350 $",
           "sub": "-69 % vs sem. préc.",
-          "streak": 3
+          "streak": 4
         },
         {
           "k": "leads",
@@ -539,61 +539,23 @@
         "impressions_b": 57
       },
       {
-        "id": "120255547587910583",
-        "name": "static image review",
-        "adset_name": "NEW CONTENT",
-        "spend_a": 0.0,
-        "spend_b": 4.56,
-        "leads_a": 0,
-        "leads_b": 1,
-        "cpl_a": null,
-        "cpl_b": 4.56,
-        "cpm_a": 0.0,
-        "cpm_b": 10.13,
-        "ctr_a": 0.0,
-        "ctr_b": 0.89,
-        "freq_a": 0.0,
-        "freq_b": 1.01,
-        "impressions_a": 0,
-        "impressions_b": 450
-      },
-      {
-        "id": "120255577660330583",
-        "name": "Nouvelle publicité de Prospects - Copie",
+        "id": "120255577770110583",
+        "name": "Nouvelle publicité de Prospects - Copie - Copie",
         "adset_name": "test audience 1%",
         "spend_a": 0.0,
-        "spend_b": 377.51,
+        "spend_b": 231.79,
         "leads_a": 0,
-        "leads_b": 3,
+        "leads_b": 0,
         "cpl_a": null,
-        "cpl_b": 125.84,
+        "cpl_b": null,
         "cpm_a": 0.0,
-        "cpm_b": 28.19,
+        "cpm_b": 36.5,
         "ctr_a": 0.0,
-        "ctr_b": 1.68,
+        "ctr_b": 2.0,
         "freq_a": 0.0,
-        "freq_b": 1.27,
+        "freq_b": 1.14,
         "impressions_a": 0,
-        "impressions_b": 13391
-      },
-      {
-        "id": "120255577660340583",
-        "name": "Nouvelle publicité de Prospects - Copie",
-        "adset_name": "test audience 1%",
-        "spend_a": 0.0,
-        "spend_b": 141.97,
-        "leads_a": 0,
-        "leads_b": 2,
-        "cpl_a": null,
-        "cpl_b": 70.98,
-        "cpm_a": 0.0,
-        "cpm_b": 22.9,
-        "ctr_a": 0.0,
-        "ctr_b": 1.0,
-        "freq_a": 0.0,
-        "freq_b": 1.12,
-        "impressions_a": 0,
-        "impressions_b": 6199
+        "impressions_b": 6351
       },
       {
         "id": "120255268275650583",
@@ -615,23 +577,61 @@
         "impressions_b": 4419
       },
       {
-        "id": "120255577770110583",
-        "name": "Nouvelle publicité de Prospects - Copie - Copie",
+        "id": "120255577660330583",
+        "name": "Nouvelle publicité de Prospects - Copie",
         "adset_name": "test audience 1%",
         "spend_a": 0.0,
-        "spend_b": 231.79,
+        "spend_b": 377.51,
         "leads_a": 0,
-        "leads_b": 0,
+        "leads_b": 3,
         "cpl_a": null,
-        "cpl_b": null,
+        "cpl_b": 125.84,
         "cpm_a": 0.0,
-        "cpm_b": 36.5,
+        "cpm_b": 28.19,
         "ctr_a": 0.0,
-        "ctr_b": 2.0,
+        "ctr_b": 1.68,
         "freq_a": 0.0,
-        "freq_b": 1.14,
+        "freq_b": 1.27,
         "impressions_a": 0,
-        "impressions_b": 6351
+        "impressions_b": 13391
+      },
+      {
+        "id": "120255547587910583",
+        "name": "static image review",
+        "adset_name": "NEW CONTENT",
+        "spend_a": 0.0,
+        "spend_b": 4.56,
+        "leads_a": 0,
+        "leads_b": 1,
+        "cpl_a": null,
+        "cpl_b": 4.56,
+        "cpm_a": 0.0,
+        "cpm_b": 10.13,
+        "ctr_a": 0.0,
+        "ctr_b": 0.89,
+        "freq_a": 0.0,
+        "freq_b": 1.01,
+        "impressions_a": 0,
+        "impressions_b": 450
+      },
+      {
+        "id": "120255577660340583",
+        "name": "Nouvelle publicité de Prospects - Copie",
+        "adset_name": "test audience 1%",
+        "spend_a": 0.0,
+        "spend_b": 141.97,
+        "leads_a": 0,
+        "leads_b": 2,
+        "cpl_a": null,
+        "cpl_b": 70.98,
+        "cpm_a": 0.0,
+        "cpm_b": 22.9,
+        "ctr_a": 0.0,
+        "ctr_b": 1.0,
+        "freq_a": 0.0,
+        "freq_b": 1.12,
+        "impressions_a": 0,
+        "impressions_b": 6199
       }
     ],
     "recommendations": [
@@ -654,7 +654,7 @@
         "level": "ad",
         "target": "comparaison / avant-après",
         "title": "Angle gagnant — comparaison / avant-après",
-        "text": "\"comparaison / avant-après\" à 28 $/lead (40 leads, 1 126 $ dépensés — pubs : STatic image avant apres mag, Lequel a 12 ans, Pub eux vs nous) bat \"autre / non classé\" à 39 $/lead (19 leads — pubs : Pavé cale, laveur, static image flaque d'eau, tout ce que t'as deja essayé, static image, static image lui toi, Ton terrain est parfait, static image review, Nouvelle publicité de Prospects - Copie, Nouvelle publicité de Prospects - Copie, Nouvelle publicité de Prospects - Copie - Copie). Mets plus de budget/nouvelles variantes sur \"comparaison / avant-après\"."
+        "text": "\"comparaison / avant-après\" à 28 $/lead (40 leads, 1 126 $ dépensés — pubs : STatic image avant apres mag, Lequel a 12 ans, Pub eux vs nous) bat \"autre / non classé\" à 39 $/lead (19 leads — pubs : Pavé cale, laveur, static image flaque d'eau, tout ce que t'as deja essayé, static image, static image lui toi, Ton terrain est parfait, Nouvelle publicité de Prospects - Copie - Copie, Nouvelle publicité de Prospects - Copie, static image review, Nouvelle publicité de Prospects - Copie). Mets plus de budget/nouvelles variantes sur \"comparaison / avant-après\"."
       }
     ]
   }
