@@ -1,8 +1,54 @@
 {
   "source": "live",
-  "generated_at": "2026-08-18T13:56:10.600708+00:00",
+  "generated_at": "2026-08-18T14:23:48.985336+00:00",
   "labor_trend": [],
   "season": [],
+  "rent": [
+    {
+      "k": "labor",
+      "label": "Main-d'œuvre / CA",
+      "v": 46,
+      "disp": "46 %",
+      "target": 35,
+      "dir": "down",
+      "targetLabel": "30–35 %",
+      "streak": 6,
+      "sub": "parqué — voir module rentabilité"
+    },
+    {
+      "k": "rework",
+      "label": "Taux de reprise",
+      "v": 6.8,
+      "disp": "6,8 %",
+      "target": 4,
+      "dir": "down",
+      "targetLabel": "≤ 4 %",
+      "streak": 4,
+      "sub": "parqué"
+    },
+    {
+      "k": "marge",
+      "label": "Marge brute",
+      "v": 34,
+      "disp": "34 %",
+      "target": 40,
+      "dir": "up",
+      "targetLabel": "≥ 40 %",
+      "streak": 3,
+      "sub": "parqué"
+    },
+    {
+      "k": "rpp",
+      "label": "Revenu / personne / jour",
+      "v": 1180,
+      "disp": "1 180 $",
+      "target": 1400,
+      "dir": "up",
+      "targetLabel": "≥ 1 400 $",
+      "streak": 3,
+      "sub": "parqué"
+    }
+  ],
   "periods": {
     "current": {
       "label": "11 Aug – 18 Aug 2026",
@@ -16,17 +62,17 @@
           "dir": "up",
           "targetLabel": "≥ 80 %",
           "sub": "approx. (RDV pris jour même)",
-          "streak": 1
+          "streak": 2
         },
         {
           "k": "rdv",
           "label": "Taux de RDV booké",
-          "v": 38,
-          "disp": "38 %",
+          "v": 37,
+          "disp": "37 %",
           "target": 60,
           "dir": "up",
           "targetLabel": "≥ 60 %",
-          "streak": 1
+          "streak": 2
         },
         {
           "k": "close",
@@ -36,7 +82,7 @@
           "target": 35,
           "dir": "up",
           "targetLabel": "35–45 %",
-          "streak": 1
+          "streak": 2
         },
         {
           "k": "deal",
@@ -46,31 +92,31 @@
           "target": 2400,
           "dir": "up",
           "targetLabel": "≥ 2 400 $",
-          "streak": 1
+          "streak": 2
         }
       ],
       "acq": [
         {
           "k": "cpl",
           "label": "Coût par lead",
-          "v": 31.57,
+          "v": 31.79,
           "disp": "32 $",
           "target": 21,
           "dir": "down",
           "targetLabel": "17–21 $",
           "sub": "-20 % vs sem. préc.",
-          "streak": 1
+          "streak": 2
         },
         {
           "k": "cac",
           "label": "Coût d'acquisition client",
-          "v": 423,
-          "disp": "423 $",
+          "v": 426,
+          "disp": "426 $",
           "target": 350,
           "dir": "down",
           "targetLabel": "≤ 350 $",
           "sub": "-69 % vs sem. préc.",
-          "streak": 1
+          "streak": 2
         },
         {
           "k": "leads",
@@ -84,8 +130,8 @@
         {
           "k": "spend",
           "label": "Dépense pub",
-          "v": 2115.1099999999997,
-          "disp": "2 115 $",
+          "v": 2129.8900000000003,
+          "disp": "2 130 $",
           "target": null,
           "streak": 1
         }
@@ -139,7 +185,7 @@
       "funnel": [
         {
           "s": "Leads",
-          "n": 69
+          "n": 70
         },
         {
           "s": "Contactés jour-même",
@@ -163,13 +209,13 @@
         }
       ],
       "cac_levers": {
-        "cpl_current": 31.57,
+        "cpl_current": 31.79,
         "cpl_previous": 39.6,
         "cpl_change_pct": -20,
         "conversion_current": 7.5,
         "conversion_previous": 2.9,
         "conversion_change_pct": 159,
-        "cac_current": 423,
+        "cac_current": 426,
         "cac_previous": 1386,
         "cac_change_pct": -69,
         "driver_text": "CAC stable ou en baisse — rien à corriger cette semaine."
@@ -190,58 +236,39 @@
         "id": "120251672016600583",
         "name": "NEW CONTENT",
         "adset_name": "NEW CONTENT",
-        "spend_a": 1167.82,
+        "spend_a": 1174.15,
         "spend_b": 1244.46,
         "leads_a": 41,
         "leads_b": 43,
-        "cpl_a": 28.48,
+        "cpl_a": 28.64,
         "cpl_b": 28.94,
-        "cpm_a": 22.73,
+        "cpm_a": 22.78,
         "cpm_b": 22.23,
-        "ctr_a": 1.5,
+        "ctr_a": 1.49,
         "ctr_b": 1.4,
         "freq_a": 1.64,
         "freq_b": 1.72,
-        "impressions_a": 51367,
+        "impressions_a": 51554,
         "impressions_b": 55981
       },
       {
         "id": "120255370059590583",
         "name": "Images statics AI",
         "adset_name": "Images statics AI",
-        "spend_a": 947.29,
+        "spend_a": 955.74,
         "spend_b": 589.83,
         "leads_a": 26,
         "leads_b": 20,
-        "cpl_a": 36.43,
+        "cpl_a": 36.76,
         "cpl_b": 29.49,
-        "cpm_a": 24.47,
+        "cpm_a": 24.58,
         "cpm_b": 29.44,
-        "ctr_a": 1.97,
+        "ctr_a": 1.98,
         "ctr_b": 2.05,
         "freq_a": 1.47,
         "freq_b": 1.35,
-        "impressions_a": 38716,
+        "impressions_a": 38881,
         "impressions_b": 20038
-      },
-      {
-        "id": "120255572858390583",
-        "name": "test audience 1%",
-        "adset_name": "test audience 1%",
-        "spend_a": 0.0,
-        "spend_b": 751.27,
-        "leads_a": 0,
-        "leads_b": 5,
-        "cpl_a": null,
-        "cpl_b": 150.25,
-        "cpm_a": 0.0,
-        "cpm_b": 28.96,
-        "ctr_a": 0.0,
-        "ctr_b": 1.6,
-        "freq_a": 0.0,
-        "freq_b": 1.31,
-        "impressions_a": 0,
-        "impressions_b": 25941
       },
       {
         "id": "120255268275660583",
@@ -261,6 +288,25 @@
         "freq_b": 1.2,
         "impressions_a": 0,
         "impressions_b": 4419
+      },
+      {
+        "id": "120255572858390583",
+        "name": "test audience 1%",
+        "adset_name": "test audience 1%",
+        "spend_a": 0.0,
+        "spend_b": 751.27,
+        "leads_a": 0,
+        "leads_b": 5,
+        "cpl_a": null,
+        "cpl_b": 150.25,
+        "cpm_a": 0.0,
+        "cpm_b": 28.96,
+        "ctr_a": 0.0,
+        "ctr_b": 1.6,
+        "freq_a": 0.0,
+        "freq_b": 1.31,
+        "impressions_a": 0,
+        "impressions_b": 25941
       }
     ],
     "ads": [
@@ -268,76 +314,76 @@
         "id": "120255547587890583",
         "name": "STatic image avant apres mag",
         "adset_name": "NEW CONTENT",
-        "spend_a": 806.35,
+        "spend_a": 808.42,
         "spend_b": 755.58,
         "leads_a": 29,
         "leads_b": 24,
-        "cpl_a": 27.81,
+        "cpl_a": 27.88,
         "cpl_b": 31.48,
-        "cpm_a": 20.24,
+        "cpm_a": 20.23,
         "cpm_b": 22.63,
-        "ctr_a": 1.41,
+        "ctr_a": 1.4,
         "ctr_b": 1.32,
         "freq_a": 1.54,
         "freq_b": 1.51,
-        "impressions_a": 39831,
+        "impressions_a": 39969,
         "impressions_b": 33394
       },
       {
         "id": "120255394109100583",
         "name": "Pavé cale",
         "adset_name": "Images statics AI",
-        "spend_a": 551.73,
+        "spend_a": 556.48,
         "spend_b": 245.06,
         "leads_a": 14,
         "leads_b": 8,
-        "cpl_a": 39.41,
+        "cpl_a": 39.75,
         "cpl_b": 30.63,
-        "cpm_a": 20.6,
+        "cpm_a": 20.67,
         "cpm_b": 18.87,
         "ctr_a": 2.06,
         "ctr_b": 1.87,
-        "freq_a": 1.4,
+        "freq_a": 1.41,
         "freq_b": 1.24,
-        "impressions_a": 26782,
+        "impressions_a": 26926,
         "impressions_b": 12990
       },
       {
         "id": "120255394109090583",
         "name": "Lequel a 12 ans",
         "adset_name": "Images statics AI",
-        "spend_a": 307.39,
+        "spend_a": 310.74,
         "spend_b": 307.23,
         "leads_a": 11,
         "leads_b": 10,
-        "cpl_a": 27.94,
+        "cpl_a": 28.25,
         "cpl_b": 30.72,
-        "cpm_a": 42.84,
+        "cpm_a": 43.25,
         "cpm_b": 46.37,
         "ctr_a": 2.24,
         "ctr_b": 2.35,
-        "freq_a": 1.27,
+        "freq_a": 1.26,
         "freq_b": 1.27,
-        "impressions_a": 7175,
+        "impressions_a": 7184,
         "impressions_b": 6625
       },
       {
         "id": "120251672170540583",
         "name": "sable",
         "adset_name": "NEW CONTENT",
-        "spend_a": 211.01,
+        "spend_a": 215.27,
         "spend_b": 77.95,
         "leads_a": 7,
         "leads_b": 5,
-        "cpl_a": 30.14,
+        "cpl_a": 30.75,
         "cpl_b": 15.59,
-        "cpm_a": 50.8,
+        "cpm_a": 51.22,
         "cpm_b": 54.7,
         "ctr_a": 2.74,
         "ctr_b": 2.95,
         "freq_a": 1.34,
         "freq_b": 1.2,
-        "impressions_a": 4154,
+        "impressions_a": 4203,
         "impressions_b": 1425
       },
       {
@@ -363,19 +409,19 @@
         "id": "120255370364710583",
         "name": "Le sable c'est 80%",
         "adset_name": "Images statics AI",
-        "spend_a": 51.95,
+        "spend_a": 52.26,
         "spend_b": 24.03,
         "leads_a": 1,
         "leads_b": 1,
-        "cpl_a": 51.95,
+        "cpl_a": 52.26,
         "cpl_b": 24.03,
-        "cpm_a": 14.63,
+        "cpm_a": 14.69,
         "cpm_b": 92.42,
-        "ctr_a": 0.84,
+        "ctr_a": 0.93,
         "ctr_b": 2.69,
         "freq_a": 1.19,
         "freq_b": 1.07,
-        "impressions_a": 3551,
+        "impressions_a": 3557,
         "impressions_b": 260
       },
       {
@@ -401,19 +447,19 @@
         "id": "120255839268990583",
         "name": "tout ce que t'as deja essayé",
         "adset_name": "Images statics AI",
-        "spend_a": 28.86,
+        "spend_a": 28.9,
         "spend_b": 0.0,
         "leads_a": 0,
         "leads_b": 0,
         "cpl_a": null,
         "cpl_b": null,
-        "cpm_a": 27.38,
+        "cpm_a": 27.26,
         "cpm_b": 0.0,
         "ctr_a": 1.42,
         "ctr_b": 0.0,
         "freq_a": 1.18,
         "freq_b": 0.0,
-        "impressions_a": 1054,
+        "impressions_a": 1060,
         "impressions_b": 0
       },
       {
@@ -493,25 +539,6 @@
         "impressions_b": 57
       },
       {
-        "id": "120255268275650583",
-        "name": "Bibi Angle mauvaises herbes",
-        "adset_name": "Bibi",
-        "spend_a": 0.0,
-        "spend_b": 186.58,
-        "leads_a": 0,
-        "leads_b": 2,
-        "cpl_a": null,
-        "cpl_b": 93.29,
-        "cpm_a": 0.0,
-        "cpm_b": 42.22,
-        "ctr_a": 0.0,
-        "ctr_b": 2.06,
-        "freq_a": 0.0,
-        "freq_b": 1.2,
-        "impressions_a": 0,
-        "impressions_b": 4419
-      },
-      {
         "id": "120255577660330583",
         "name": "Nouvelle publicité de Prospects - Copie",
         "adset_name": "test audience 1%",
@@ -529,6 +556,25 @@
         "freq_b": 1.27,
         "impressions_a": 0,
         "impressions_b": 13391
+      },
+      {
+        "id": "120255547587910583",
+        "name": "static image review",
+        "adset_name": "NEW CONTENT",
+        "spend_a": 0.0,
+        "spend_b": 4.56,
+        "leads_a": 0,
+        "leads_b": 1,
+        "cpl_a": null,
+        "cpl_b": 4.56,
+        "cpm_a": 0.0,
+        "cpm_b": 10.13,
+        "ctr_a": 0.0,
+        "ctr_b": 0.89,
+        "freq_a": 0.0,
+        "freq_b": 1.01,
+        "impressions_a": 0,
+        "impressions_b": 450
       },
       {
         "id": "120255577660340583",
@@ -550,6 +596,25 @@
         "impressions_b": 6199
       },
       {
+        "id": "120255268275650583",
+        "name": "Bibi Angle mauvaises herbes",
+        "adset_name": "Bibi",
+        "spend_a": 0.0,
+        "spend_b": 186.58,
+        "leads_a": 0,
+        "leads_b": 2,
+        "cpl_a": null,
+        "cpl_b": 93.29,
+        "cpm_a": 0.0,
+        "cpm_b": 42.22,
+        "ctr_a": 0.0,
+        "ctr_b": 2.06,
+        "freq_a": 0.0,
+        "freq_b": 1.2,
+        "impressions_a": 0,
+        "impressions_b": 4419
+      },
+      {
         "id": "120255577770110583",
         "name": "Nouvelle publicité de Prospects - Copie - Copie",
         "adset_name": "test audience 1%",
@@ -567,25 +632,6 @@
         "freq_b": 1.14,
         "impressions_a": 0,
         "impressions_b": 6351
-      },
-      {
-        "id": "120255547587910583",
-        "name": "static image review",
-        "adset_name": "NEW CONTENT",
-        "spend_a": 0.0,
-        "spend_b": 4.56,
-        "leads_a": 0,
-        "leads_b": 1,
-        "cpl_a": null,
-        "cpl_b": 4.56,
-        "cpm_a": 0.0,
-        "cpm_b": 10.13,
-        "ctr_a": 0.0,
-        "ctr_b": 0.89,
-        "freq_a": 0.0,
-        "freq_b": 1.01,
-        "impressions_a": 0,
-        "impressions_b": 450
       }
     ],
     "recommendations": [
@@ -594,21 +640,21 @@
         "level": "adset",
         "target": "NEW CONTENT",
         "title": "Couper / réduire — NEW CONTENT",
-        "text": "CPL à 28 $ sur 1 168 $ dépensés / 41 leads cette semaine — au-dessus du seuil de 25 $ et de ta cible (17–21 $). Suggestion : mets en pause ou réalloue ce budget vers un ad set plus performant."
+        "text": "CPL à 29 $ sur 1 174 $ dépensés / 41 leads cette semaine — au-dessus du seuil de 25 $ et de ta cible (17–21 $). Suggestion : mets en pause ou réalloue ce budget vers un ad set plus performant."
       },
       {
         "type": "couper",
         "level": "adset",
         "target": "Images statics AI",
         "title": "Couper / réduire — Images statics AI",
-        "text": "CPL à 36 $ sur 947 $ dépensés / 26 leads cette semaine — au-dessus du seuil de 25 $ et de ta cible (17–21 $). Suggestion : mets en pause ou réalloue ce budget vers un ad set plus performant."
+        "text": "CPL à 37 $ sur 956 $ dépensés / 26 leads cette semaine — au-dessus du seuil de 25 $ et de ta cible (17–21 $). Suggestion : mets en pause ou réalloue ce budget vers un ad set plus performant."
       },
       {
         "type": "angle",
         "level": "ad",
         "target": "comparaison / avant-après",
         "title": "Angle gagnant — comparaison / avant-après",
-        "text": "\"comparaison / avant-après\" à 28 $/lead (40 leads, 1 119 $ dépensés — pubs : STatic image avant apres mag, Lequel a 12 ans, Pub eux vs nous) bat \"autre / non classé\" à 39 $/lead (19 leads — pubs : Pavé cale, laveur, static image flaque d'eau, tout ce que t'as deja essayé, static image, static image lui toi, Ton terrain est parfait, Nouvelle publicité de Prospects - Copie, Nouvelle publicité de Prospects - Copie, Nouvelle publicité de Prospects - Copie - Copie, static image review). Mets plus de budget/nouvelles variantes sur \"comparaison / avant-après\"."
+        "text": "\"comparaison / avant-après\" à 28 $/lead (40 leads, 1 125 $ dépensés — pubs : STatic image avant apres mag, Lequel a 12 ans, Pub eux vs nous) bat \"autre / non classé\" à 39 $/lead (19 leads — pubs : Pavé cale, laveur, static image flaque d'eau, tout ce que t'as deja essayé, static image, static image lui toi, Ton terrain est parfait, Nouvelle publicité de Prospects - Copie, static image review, Nouvelle publicité de Prospects - Copie, Nouvelle publicité de Prospects - Copie - Copie). Mets plus de budget/nouvelles variantes sur \"comparaison / avant-après\"."
       }
     ]
   }
