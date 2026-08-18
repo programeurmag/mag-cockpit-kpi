@@ -22,13 +22,14 @@ import urllib.error
 from datetime import datetime, timedelta, date, timezone
 from zoneinfo import ZoneInfo
 
-TZ = ZoneInfo("America/Montreal")
+TZ = ZoneInfo("America/Toronto")  # == America/Montreal (mêmes règles DST), nom explicite demandé pour le bucketing journalier
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(ROOT, "docs", "data")
 HISTORY_PATH = os.path.join(DATA_DIR, "history.json")
 KPIS_PATH = os.path.join(DATA_DIR, "kpis.json")
+DAILY_PATH = os.path.join(DATA_DIR, "daily.json")
 
 
 def load_env():
@@ -306,6 +307,28 @@ def meta_insights(level, since, until):
     return out
 
 
+def meta_insights_daily(since, until):
+    """Un seul appel /insights avec time_increment=1 -> une ligne par jour
+    (date_start = date_stop = ce jour-là). Lecture seule."""
+    params = {
+        "fields": "spend,actions",
+        "time_range": json.dumps({"since": since.isoformat(), "until": until.isoformat()}),
+        "time_increment": 1,
+        "limit": 500,
+    }
+    out = []
+    res = meta_get(f"{META_AD_ACCOUNT}/insights", params)
+    out.extend(res.get("data", []))
+    next_url = res.get("paging", {}).get("next")
+    while next_url:
+        req = urllib.request.Request(next_url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            res = json.loads(r.read().decode())
+        out.extend(res.get("data", []))
+        next_url = res.get("paging", {}).get("next")
+    return out
+
+
 def meta_leads_count(row):
     for a in row.get("actions", []):
         if a.get("action_type") in META_LEAD_ACTION_TYPES:
@@ -351,6 +374,13 @@ def pct_change(cur, prev):
     return round(100 * (cur - prev) / prev)
 
 
+def daterange(start_date, end_date):
+    d = start_date
+    while d <= end_date:
+        yield d
+        d += timedelta(days=1)
+
+
 # =============================================================================
 # VENTES — funnel + KPIs (fenêtre courante uniquement, voir décision du 2026-08-17
 # : pas d'historique pré-changement de pipeline cette phase-ci)
@@ -372,6 +402,102 @@ def fetch_calendar_events(start_ms, end_ms):
         except urllib.error.HTTPError as e:
             print(f"  ! calendrier {cal_id} : HTTP {e.code}, ignoré", file=sys.stderr)
     return events
+
+
+def build_daily_series(backfill_start, end_date, setting_opps, closing_won_opps, events, jobber_quotes, meta_daily_rows):
+    """Série journalière — COMPTES BRUTS par jour (jamais de taux ici, le
+    front agrège/divise). Bucketé en TZ (America/Toronto). Chaque source est
+    bucketée par SA propre date : leads par date de création, closings/
+    won_value par date de GAIN (lastStatusChangeAt, avec repli si absent —
+    voir warning stderr), RDV par date de prise de RDV, visites par date de
+    RDV lui-même, soumissions par date d'envoi (Jobber sentAt), spend par
+    jour Meta (time_increment=1)."""
+    days = {}
+    for d in daterange(backfill_start, end_date):
+        key = d.isoformat()
+        days[key] = {"d": key, "leads": 0, "contacted": 0, "rdv": 0, "visits": 0,
+                     "quotes": 0, "closings": 0, "won_value": 0.0, "spend": 0.0}
+
+    # --- leads : par date de création GHL (SETTING) ---
+    for o in setting_opps:
+        dt = parse_ghl_dt(o.get("createdAt"))
+        if not dt:
+            continue
+        key = dt.astimezone(TZ).date().isoformat()
+        if key in days:
+            days[key]["leads"] += 1
+
+    # --- contacté jour-même (APPROXIMATION, voir ventes plus haut dans le fichier) ---
+    events_by_contact = {}
+    for e in events:
+        cid = e.get("contactId")
+        if cid:
+            events_by_contact.setdefault(cid, []).append(e)
+    for o in setting_opps:
+        cid = o.get("contactId")
+        lead_dt = parse_ghl_dt(o.get("createdAt"))
+        if not cid or not lead_dt:
+            continue
+        lead_day = lead_dt.astimezone(TZ).date()
+        key = lead_day.isoformat()
+        if key not in days:
+            continue
+        for e in events_by_contact.get(cid, []):
+            booked_at = parse_ghl_dt(e.get("dateAdded"))
+            if booked_at and booked_at.astimezone(TZ).date() == lead_day:
+                days[key]["contacted"] += 1
+                break
+
+    # --- RDV (date de prise de RDV) + visites (date du RDV lui-même) ---
+    for e in events:
+        if e.get("appointmentStatus") == "cancelled":
+            continue
+        booked_dt = parse_ghl_dt(e.get("dateAdded"))
+        if booked_dt:
+            key = booked_dt.astimezone(TZ).date().isoformat()
+            if key in days:
+                days[key]["rdv"] += 1
+        start_dt = parse_ghl_dt(e.get("startTime"))
+        if start_dt:
+            key = start_dt.astimezone(TZ).date().isoformat()
+            if key in days:
+                days[key]["visits"] += 1
+
+    # --- soumissions envoyées (Jobber, date d'envoi) ---
+    for q in jobber_quotes:
+        sent = q.get("sentAt")
+        if not sent:
+            continue
+        dt = parse_ghl_dt(sent)
+        if not dt:
+            continue
+        key = dt.astimezone(TZ).date().isoformat()
+        if key in days:
+            days[key]["quotes"] += 1
+
+    # --- closings + won_value (date de GAIN, pas de création) ---
+    approx_count = 0
+    for o in closing_won_opps:
+        gain_raw = o.get("lastStatusChangeAt") or o.get("updatedAt") or o.get("createdAt")
+        if not o.get("lastStatusChangeAt"):
+            approx_count += 1
+        dt = parse_ghl_dt(gain_raw)
+        if not dt:
+            continue
+        key = dt.astimezone(TZ).date().isoformat()
+        if key in days:
+            days[key]["closings"] += 1
+            days[key]["won_value"] += o.get("monetaryValue", 0) or 0
+    if approx_count:
+        print(f"  ! {approx_count} closing(s) sans lastStatusChangeAt — date de gain approximée (updatedAt/createdAt)", file=sys.stderr)
+
+    # --- dépense Meta (time_increment=1, bucket = date_start) ---
+    for row in meta_daily_rows:
+        key = row.get("date_start")
+        if key in days:
+            days[key]["spend"] += _num(row, "spend")
+
+    return [days[k] for k in sorted(days.keys())]
 
 
 def count_leads_in_window(setting_opps, start, end):
@@ -754,23 +880,30 @@ def main():
     now = datetime.now(TZ)
     start_a, end_a = window_last_n_days(7, anchor=now)
     start_b, end_b = window_last_n_days(7, anchor=start_a)
+    backfill_start = date(now.year, 1, 1)
     print(f"Fenêtre courante   : {start_a.isoformat()} -> {end_a.isoformat()}")
     print(f"Fenêtre précédente : {start_b.isoformat()} -> {end_b.isoformat()}")
+    print(f"Backfill journalier : {backfill_start.isoformat()} -> {now.date().isoformat()}")
 
-    print("\n[1/4] GHL — opportunités SETTING + CLOSING (won)...")
+    print("\n[1/5] GHL — opportunités SETTING + CLOSING (won)...")
     setting_opps, closing_won_opps = fetch_ghl_raw()
     print(f"  {len(setting_opps)} leads SETTING (tout historique), {len(closing_won_opps)} closings gagnés (tout historique)")
 
-    print("[2/4] GHL — calendrier (RDV/visites)...")
-    events = fetch_calendar_events(int(start_b.timestamp() * 1000), int(end_a.timestamp() * 1000))
-    print(f"  {len(events)} événements (fenêtre élargie)")
+    # Fenêtre élargie au backfill complet — réutilisée à la fois pour le
+    # funnel hebdo (build_ventes filtre lui-même sur start_a/end_a) ET pour
+    # la série journalière (build_daily_series), pour éviter 2 pulls.
+    backfill_start_dt = datetime(backfill_start.year, backfill_start.month, backfill_start.day, tzinfo=TZ)
 
-    print("[3/4] Jobber — quotes (soumissions envoyées, lecture seule)...")
+    print("[2/5] GHL — calendrier (RDV/visites, backfill complet)...")
+    events = fetch_calendar_events(int(backfill_start_dt.timestamp() * 1000), int(end_a.timestamp() * 1000))
+    print(f"  {len(events)} événements")
+
+    print("[3/5] Jobber — quotes (soumissions envoyées, lecture seule, backfill complet)...")
     jobber_quotes = []
     if JOBBER_REFRESH_TOKEN:
         try:
             token = jobber_access_token()
-            jobber_quotes = jobber_recent_quotes(token, start_b)
+            jobber_quotes = jobber_recent_quotes(token, backfill_start_dt, max_pages=40)
             print(f"  {len(jobber_quotes)} quotes récupérées")
         except Exception as e:
             print(f"  ! Jobber indisponible : {e}", file=sys.stderr)
@@ -790,10 +923,28 @@ def main():
     for f in funnel:
         print(f"  {f['s']}: {f['n']}")
 
+    if META_TOKEN and META_AD_ACCOUNT:
+        print("\n[4/5] Meta — insights journaliers (time_increment=1, backfill complet)...")
+        try:
+            meta_daily_rows = meta_insights_daily(backfill_start, now.date())
+            print(f"  {len(meta_daily_rows)} lignes journalières Meta")
+        except Exception as e:
+            meta_daily_rows = []
+            print(f"  ! Meta daily indisponible : {e}", file=sys.stderr)
+    else:
+        meta_daily_rows = []
+
+    daily = build_daily_series(backfill_start, now.date(), setting_opps, closing_won_opps, events, jobber_quotes, meta_daily_rows)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(DAILY_PATH, "w") as f:
+        json.dump(daily, f, indent=2, ensure_ascii=False)
+    nonzero_days = sum(1 for d in daily if d["leads"] or d["spend"])
+    print(f"\nÉcrit -> {DAILY_PATH} ({len(daily)} jours, {nonzero_days} avec activité)")
+
     fbads = None
     acq = None
     if META_TOKEN and META_AD_ACCOUNT:
-        print("\n[4/4] Meta — insights ad set + ad, 2 fenêtres...")
+        print("\n[5/5] Meta — insights ad set + ad, 2 fenêtres (FB Ads)...")
         fbads, spend_a, leads_a_meta, spend_b, leads_b_meta = build_fbads(
             start_a.date(), end_a.date(), start_b.date(), end_b.date()
         )
@@ -835,7 +986,8 @@ def main():
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "labor_trend": [],
         "season": [],
-        "periods": {"current": period},
+        "rent": RENT_PARKED,  # racine — le front lit kpis.rent directement (daily.json a remplacé periods.*.ventes/acq)
+        "periods": {"current": period},  # legacy, plus lu par le front — gardé pour référence/debug
     }
     if fbads:
         out["fbads"] = fbads

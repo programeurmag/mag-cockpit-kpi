@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceArea, Cell,
@@ -12,7 +12,11 @@ import {
 
 /* ============================================================
    MAG · Cockpit KPI + moteur de diagnostic
-   - Lit docs/data/kpis.json (build_kpis.py). Sinon -> démo.
+   - Lit docs/data/daily.json (série journalière, comptes bruts) +
+     docs/data/kpis.json (FB Ads + Rentabilité parquée). Sinon -> démo.
+   - Le front agrège n'importe quelle plage à partir de daily.json : on somme
+     les numérateurs/dénominateurs sur la fenêtre PUIS on divise (jamais de
+     moyenne de taux journaliers).
    - Cible closing = 35 %. Au-dessus de 45 % trop longtemps -> monte les prix.
    - Rouge -> d'où vient le problème (remonte l'entonnoir).
    - Vert trop longtemps -> prochaine étape.
@@ -29,6 +33,17 @@ const C = {
 const CLOSE_FLOOR = 35;   // sous ça = problème
 const CLOSE_CEIL = 45;    // au-dessus trop longtemps = sous-tarifé
 
+// Cibles — DOIT rester synchro avec TARGETS/CLOSE_FLOOR/CLOSE_CEIL côté
+// scripts/build_kpis.py (une seule source de vérité, voir CLAUDE.md).
+const TARGETS = {
+  contact: { target: 80, dir: "up", label: "≥ 80 %" },
+  rdv: { target: 60, dir: "up", label: "≥ 60 %" },
+  close: { target: 35, dir: "up", label: "35–45 %" },
+  deal: { target: 2400, dir: "up", label: "≥ 2 400 $" },
+  cpl: { target: 21, dir: "down", label: "17–21 $" },
+  cac: { target: 350, dir: "down", label: "≤ 350 $" },
+};
+
 const STATUS = {
   good: { c: C.teal, label: "sur la cible", Icon: Check },
   watch: { c: C.amber, label: "à surveiller", Icon: AlertTriangle },
@@ -38,7 +53,7 @@ const STATUS = {
 
 const ICONS = {
   contact: Phone, rdv: CalendarCheck, close: Target, deal: DollarSign,
-  cpl: Megaphone, cac: Target, leads: Users, spend: DollarSign,
+  cpl: Megaphone, cps: DollarSign, cac: Target, leads: Users, spend: DollarSign,
   labor: Users, rework: Wrench, marge: Percent, rpp: Activity,
 };
 
@@ -67,14 +82,14 @@ function adviceFor(kpi) {
         text: `Sous ${CLOSE_FLOOR} %. Trois suspects dans l'ordre : (1) prix trop hauts pour le segment → check ton taux de closing par tranche de prix ; (2) pitch de valeur faible sur place → travaille la démo avant/après ; (3) leads pas qualifiés → resserre le ciblage Meta. Si tu perds surtout sur le prix avec des bons leads, c'est le pitch ; si tu perds des leads pas sérieux, c'est le ciblage.` };
     if (st === "good" && streak >= 3)
       return { tone: "push", title: "Zone saine — prochaine étape",
-        text: `Closing stable dans la zone ${CLOSE_FLOOR}–${CLOSE_CEIL} % depuis ${streak} périodes. Prochaine étape : pousse le panier moyen (upsells relevelage / sable premium / murets) plutôt que le taux.` };
+        text: `Closing stable dans la zone ${CLOSE_FLOOR}–${CLOSE_CEIL} % depuis ${streak} périodes équivalentes. Prochaine étape : pousse le panier moyen (upsells relevelage / sable premium / murets) plutôt que le taux.` };
     return null;
   }
   if (k === "deal") {
     if (st === "bad") return { tone: "fix", title: "Panier moyen bas",
       text: `Sous 2 400 $. Systématise les upsells (relevelage, sable premium, murets) et respecte ton minimum de job. Un bundle proposé par défaut monte le panier sans baisser le closing.` };
     if (st === "good" && streak >= 3) return { tone: "push", title: "Panier solide — teste plus haut",
-      text: `Panier au-dessus de la cible depuis ${streak} périodes. Teste un tier de prix plus élevé sur les grosses surfaces / gros joints et regarde si le closing tient.` };
+      text: `Panier au-dessus de la cible depuis ${streak} périodes équivalentes. Teste un tier de prix plus élevé sur les grosses surfaces / gros joints et regarde si le closing tient.` };
     return null;
   }
   if (k === "cpl") {
@@ -130,7 +145,7 @@ function diagnose(P, prev) {
 
   if (!prev) {
     return { tone: "watch", title: "Pas de période de comparaison",
-      text: "Une fois branché sur l'historique, ce panneau te dira exactement d'où vient une baisse de $ closé." };
+      text: "La période précédente équivalente n'a pas assez de données (avant le début de l'historique). Choisis une plage plus courte pour voir le diagnostic complet." };
   }
   const prevDeal = getK(prev, "ventes", "deal");
   const prevClos = prev.funnel[prev.funnel.length - 1].n;
@@ -162,7 +177,6 @@ function diagnose(P, prev) {
     return { tone: "watch", title: "Baisse de $ diffuse",
       text: "Pas un seul maillon dominant — plusieurs étapes ont fléchi un peu. Regarde le levier avec le plus gros drop dans l'entonnoir." };
 
-  const idx = stages.indexOf(culprit);
   const closesDown = stages[stages.length - 1].drop > 0.1;
   const map = {
     "Leads": `Le problème est en haut : les leads ont chuté de ${Math.round(culprit.drop * 100)} %. C'est de l'acquisition (budget/créa Meta), pas ton closing.`,
@@ -180,12 +194,282 @@ function diagnose(P, prev) {
 
 function money(v) {
   if (v == null) return "—";
-  return `${Math.round(v).toLocaleString("fr-CA")} $`.replace(/ |,/g, " ");
+  return `${Math.round(v).toLocaleString("fr-CA")} $`.replace(/ |,/g, " ");
 }
 
 /* ============================================================
-   DÉMO (fallback) — cible closing 35 %
+   DATES — tout en calendrier pur (chaînes YYYY-MM-DD), lundi = début de
+   semaine. Le "aujourd'hui" est calculé en America/Toronto pour matcher le
+   bucketing du builder, pas le fuseau du navigateur du visiteur.
    ============================================================ */
+function todayInTZ(tz = "America/Toronto") {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const g = (t) => parts.find((p) => p.type === t).value;
+  return `${g("year")}-${g("month")}-${g("day")}`;
+}
+function toEpochDay(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
+}
+function fromEpochDay(n) {
+  return new Date(n * 86400000).toISOString().slice(0, 10);
+}
+function addDays(iso, n) {
+  return fromEpochDay(toEpochDay(iso) + n);
+}
+function mondayOf(iso) {
+  const day = new Date(iso + "T00:00:00Z").getUTCDay(); // 0=dim...6=sam
+  const offset = (day + 6) % 7;
+  return addDays(iso, -offset);
+}
+function fmtDateShort(iso) {
+  const [, m, d] = iso.split("-");
+  const MOIS = ["", "jan", "fév", "mar", "avr", "mai", "juin", "juil", "août", "sep", "oct", "nov", "déc"];
+  return `${parseInt(d, 10)} ${MOIS[parseInt(m, 10)]}`;
+}
+
+const RANGE_OPTIONS = [
+  { key: "ytd", label: "YTD" },
+  { key: "mtd", label: "Ce mois-ci" },
+  { key: "last_month", label: "Le dernier mois" },
+  { key: "d30", label: "Derniers 30 jours" },
+  { key: "d14", label: "Derniers 14 jours" },
+  { key: "d7", label: "Derniers 7 jours" },
+  { key: "this_week", label: "Cette semaine" },
+  { key: "last_week", label: "Semaine dernière" },
+  { key: "custom", label: "Custom" },
+];
+
+function computeRange(rangeKey, todayIso, customStart, customEnd) {
+  const monday = mondayOf(todayIso);
+  const lastMonday = addDays(monday, -7);
+  const lastSunday = addDays(monday, -1);
+  const firstOfMonth = todayIso.slice(0, 7) + "-01";
+  const prevMonthLastDay = addDays(firstOfMonth, -1);
+  const prevMonthFirstDay = prevMonthLastDay.slice(0, 7) + "-01";
+  switch (rangeKey) {
+    case "ytd": return { start: `${todayIso.slice(0, 4)}-01-01`, end: todayIso };
+    case "mtd": return { start: firstOfMonth, end: todayIso };
+    case "last_month": return { start: prevMonthFirstDay, end: prevMonthLastDay };
+    case "d30": return { start: addDays(todayIso, -29), end: todayIso };
+    case "d14": return { start: addDays(todayIso, -13), end: todayIso };
+    case "d7": return { start: addDays(todayIso, -6), end: todayIso };
+    case "this_week": return { start: monday, end: todayIso };
+    case "last_week": return { start: lastMonday, end: lastSunday };
+    case "custom": return { start: customStart || addDays(todayIso, -6), end: customEnd || todayIso };
+    default: return { start: addDays(todayIso, -6), end: todayIso };
+  }
+}
+function previousEquivalent(start, end) {
+  const len = toEpochDay(end) - toEpochDay(start) + 1;
+  const prevEnd = addDays(start, -1);
+  const prevStart = addDays(prevEnd, -(len - 1));
+  return { start: prevStart, end: prevEnd };
+}
+
+/* ============================================================
+   AGRÉGATION daily.json -> KPIs (sommer PUIS diviser, jamais l'inverse)
+   ============================================================ */
+const EMPTY_SUMS = { leads: 0, contacted: 0, rdv: 0, visits: 0, quotes: 0, closings: 0, won_value: 0, spend: 0 };
+
+function aggregate(daily, start, end) {
+  const s = toEpochDay(start), e = toEpochDay(end);
+  const sums = { ...EMPTY_SUMS };
+  for (const row of daily) {
+    const t = toEpochDay(row.d);
+    if (t >= s && t <= e) {
+      for (const k in sums) sums[k] += row[k] || 0;
+    }
+  }
+  return sums;
+}
+function hasRealData(sums) {
+  return sums.leads > 0 || sums.spend > 0 || sums.closings > 0 || sums.quotes > 0;
+}
+function deriveKpis(sums) {
+  const pct = (num, den) => (den ? Math.round((100 * num) / den) : 0);
+  return {
+    contact: pct(sums.contacted, sums.leads),
+    rdv: pct(sums.rdv, sums.leads),
+    close: pct(sums.closings, sums.quotes),
+    deal: sums.closings ? Math.round(sums.won_value / sums.closings) : 0,
+    cpl: sums.leads ? +(sums.spend / sums.leads).toFixed(2) : null,
+    cac: sums.closings ? Math.round(sums.spend / sums.closings) : null,
+    cps: sums.quotes ? +(sums.spend / sums.quotes).toFixed(2) : null,
+    leads: sums.leads,
+    spend: Math.round(sums.spend),
+    conv: sums.leads ? +((100 * sums.closings) / sums.leads).toFixed(1) : null,
+  };
+}
+function toFunnel(sums) {
+  return [
+    { s: "Leads", n: sums.leads },
+    { s: "Contactés jour-même", n: sums.contacted },
+    { s: "RDV bookés", n: sums.rdv },
+    { s: "Visites réalisées", n: sums.visits },
+    { s: "Soumissions envoyées", n: sums.quotes },
+    { s: "Closings", n: sums.closings },
+  ];
+}
+function pctChangeD(cur, prev) {
+  if (prev == null || prev === 0 || cur == null) return null;
+  return Math.round((100 * (cur - prev)) / prev);
+}
+function ptsDelta(cur, prev) {
+  if (cur == null || prev == null) return null;
+  return Math.round(cur - prev);
+}
+
+function computeStreak(daily, metricKey, start, end, target, dir, maxLookback = 24) {
+  if (target == null) return 1;
+  const len = toEpochDay(end) - toEpochDay(start) + 1;
+  const cur0 = deriveKpis(aggregate(daily, start, end))[metricKey];
+  if (cur0 == null) return 1;
+  const targetStatus = statusOf(cur0, target, dir);
+  let streak = 1;
+  let curEnd = addDays(start, -1);
+  let curStart = addDays(curEnd, -(len - 1));
+  for (let i = 0; i < maxLookback; i++) {
+    const sums = aggregate(daily, curStart, curEnd);
+    if (!hasRealData(sums)) break;
+    const v = deriveKpis(sums)[metricKey];
+    if (v == null || statusOf(v, target, dir) !== targetStatus) break;
+    streak++;
+    curEnd = addDays(curStart, -1);
+    curStart = addDays(curEnd, -(len - 1));
+  }
+  return streak;
+}
+
+function buildCacLevers(cur, prev) {
+  const cplDelta = pctChangeD(cur.cpl, prev.cpl);
+  const convDelta = prev.conv ? pctChangeD(cur.conv, prev.conv) : null;
+  const cacDelta = pctChangeD(cur.cac, prev.cac);
+  let driver_text;
+  if (cacDelta == null || cplDelta == null || convDelta == null) {
+    driver_text = "Pas assez d'historique sur la période précédente pour départager les deux leviers.";
+  } else if (cacDelta <= 0) {
+    driver_text = "CAC stable ou en baisse — rien à corriger sur cette période.";
+  } else {
+    const cplBad = cplDelta > 0 ? cplDelta : 0;
+    const convBad = convDelta < 0 ? -convDelta : 0;
+    if (cplBad >= convBad && cplBad > 0) {
+      driver_text = `CAC en hausse de ${cacDelta} % — poussé par le CPL (+${cplDelta} %). Le pub coûte plus cher au lead, pas un problème de conversion. Voir section FB Ads pour la cause exacte.`;
+    } else if (convBad > 0) {
+      driver_text = `CAC en hausse de ${cacDelta} % — poussé par la conversion lead→client qui a chuté de ${Math.abs(convDelta)} %. Le pub reste efficace, le problème est dans le funnel de vente.`;
+    } else {
+      driver_text = `CAC en hausse de ${cacDelta} % sans levier dominant clair — CPL ${cplDelta >= 0 ? "+" : ""}${cplDelta} %, conversion ${convDelta >= 0 ? "+" : ""}${convDelta} %.`;
+    }
+  }
+  return { cpl_change_pct: cplDelta, conversion_change_pct: convDelta, cac_change_pct: cacDelta, driver_text };
+}
+
+function buildPeriodView(daily, start, end) {
+  const prevRange = previousEquivalent(start, end);
+  const curSums = aggregate(daily, start, end);
+  const prevSums = aggregate(daily, prevRange.start, prevRange.end);
+  const cur = deriveKpis(curSums);
+  const prev = deriveKpis(prevSums);
+  const hasPrev = hasRealData(prevSums);
+
+  const mk = (k, label, v, disp, tgt, sub) => {
+    const t = TARGETS[k] || {};
+    return {
+      k, label, v, disp,
+      target: tgt !== undefined ? tgt : (t.target ?? null),
+      dir: t.dir ?? null,
+      targetLabel: t.label ?? null,
+      sub,
+      delta: null,
+      streak: 1,
+    };
+  };
+
+  const streakClose = computeStreak(daily, "close", start, end, TARGETS.close.target, TARGETS.close.dir);
+  const streakDeal = computeStreak(daily, "deal", start, end, TARGETS.deal.target, TARGETS.deal.dir);
+  const streakCpl = computeStreak(daily, "cpl", start, end, TARGETS.cpl.target, TARGETS.cpl.dir);
+
+  const ventes = [
+    mk("contact", "Contact jour-même", cur.contact, `${cur.contact} %`, undefined, "approx. (RDV pris jour même)"),
+    mk("rdv", "Taux de RDV booké", cur.rdv, `${cur.rdv} %`),
+    mk("close", "Taux de closing", cur.close, `${cur.close} %`),
+    mk("deal", "Valeur moyenne / deal", cur.deal, money(cur.deal)),
+  ];
+  ventes[0].delta = hasPrev ? { value: ptsDelta(cur.contact, prev.contact), unit: " pts" } : null;
+  ventes[1].delta = hasPrev ? { value: ptsDelta(cur.rdv, prev.rdv), unit: " pts" } : null;
+  ventes[2].delta = hasPrev ? { value: ptsDelta(cur.close, prev.close), unit: " pts" } : null;
+  ventes[2].streak = streakClose;
+  ventes[3].delta = hasPrev ? { value: pctChangeD(cur.deal, prev.deal), unit: " %" } : null;
+  ventes[3].streak = streakDeal;
+
+  const acq = [
+    mk("cpl", "Coût par lead", cur.cpl, cur.cpl != null ? money(cur.cpl) : "—"),
+    mk("cps", "Coût par soumission", cur.cps, cur.cps != null ? money(cur.cps) : "—", null, "cible à définir"),
+    mk("cac", "Coût d'acquisition client", cur.cac, cur.cac != null ? money(cur.cac) : "—"),
+    mk("leads", "Leads générés", cur.leads, String(cur.leads), null,
+      cur.conv != null ? `conversion lead→client ${cur.conv} %` : null),
+    mk("spend", "Dépense pub", cur.spend, money(cur.spend), null),
+  ];
+  acq[0].delta = hasPrev ? { value: pctChangeD(cur.cpl, prev.cpl), unit: " %" } : null;
+  acq[0].streak = streakCpl;
+  acq[1].delta = hasPrev ? { value: pctChangeD(cur.cps, prev.cps), unit: " %" } : null;
+  acq[1].dir = "down";
+  acq[2].delta = hasPrev ? { value: pctChangeD(cur.cac, prev.cac), unit: " %" } : null;
+  acq[3].delta = hasPrev ? { value: pctChangeD(cur.leads, prev.leads), unit: " %" } : null;
+  acq[4].delta = hasPrev ? { value: pctChangeD(cur.spend, prev.spend), unit: " %" } : null;
+
+  const funnel = toFunnel(curSums);
+  const cacLevers = hasPrev ? buildCacLevers(cur, prev) : null;
+  const prevForDiagnose = hasPrev ? { funnel: toFunnel(prevSums), ventes: [{ k: "deal", v: prev.deal }] } : null;
+
+  return { ventes, acq, funnel, cacLevers, prevForDiagnose, hasPrev };
+}
+
+function bucketTrend(daily, start, end) {
+  const s = toEpochDay(start), e = toEpochDay(end);
+  const lenDays = e - s + 1;
+  const mode = lenDays <= 31 ? "day" : lenDays <= 120 ? "week" : "month";
+  const buckets = new Map();
+  for (const row of daily) {
+    const t = toEpochDay(row.d);
+    if (t < s || t > e) continue;
+    let key;
+    if (mode === "day") key = row.d;
+    else if (mode === "week") key = mondayOf(row.d);
+    else key = row.d.slice(0, 7);
+    buckets.set(key, (buckets.get(key) || 0) + (row.won_value || 0));
+  }
+  const keys = [...buckets.keys()].sort();
+  return keys.map((k) => ({
+    label: mode === "month" ? k : fmtDateShort(k),
+    value: Math.round(buckets.get(k)),
+  }));
+}
+
+/* ============================================================
+   DÉMO (fallback) — série journalière synthétique pour que le sélecteur de
+   plages ait quelque chose à afficher même sans daily.json.
+   ============================================================ */
+function genDemoDaily() {
+  const out = [];
+  const today = todayInTZ();
+  for (let i = 219; i >= 0; i--) {
+    const d = addDays(today, -i);
+    const seasonal = 1 + 0.35 * Math.sin(i / 18);
+    const leads = Math.max(0, Math.round(8 * seasonal + (i % 5 === 0 ? 4 : 0)));
+    const contacted = Math.round(leads * 0.55);
+    const rdv = Math.round(leads * 0.5);
+    const visits = Math.round(rdv * 0.85);
+    const quotes = Math.round(visits * 0.9);
+    const closings = Math.round(quotes * (i % 7 === 0 ? 0.55 : 0.32));
+    const won_value = closings * (2300 + (i % 6) * 60);
+    const spend = Math.round(leads * (20 + (i % 4)));
+    out.push({ d, leads, contacted, rdv, visits, quotes, closings, won_value, spend });
+  }
+  return out;
+}
+const DEMO_DAILY = genDemoDaily();
+
 const DEMO = {
   source: "demo", generated_at: null,
   labor_trend: [
@@ -198,89 +482,15 @@ const DEMO = {
     { m: "Juil", ca: 48 }, { m: "Aoû", ca: 71 }, { m: "Sep", ca: 76 },
     { m: "Oct", ca: 52 }, { m: "Nov", ca: 24 }, { m: "Déc", ca: 19 },
   ],
-  periods: {
-    current: {
-      label: "Août 2026",
-      ventes: [
-        { k: "contact", label: "Contact jour-même", v: 68, disp: "68 %", target: 80, dir: "up", targetLabel: "≥ 80 %", streak: 2 },
-        { k: "rdv", label: "Taux de RDV booké", v: 55, disp: "55 %", target: 60, dir: "up", targetLabel: "≥ 60 %", streak: 2 },
-        { k: "close", label: "Taux de closing", v: 47, disp: "47 %", target: 35, dir: "up", targetLabel: "35–45 %", streak: 4, sub: "au-dessus de 45 %" },
-        { k: "deal", label: "Valeur moyenne / deal", v: 2540, disp: "2 540 $", target: 2400, dir: "up", targetLabel: "≥ 2 400 $", streak: 5 },
-      ],
-      acq: [
-        { k: "cpl", label: "Coût par lead", v: 23, disp: "23 $", target: 21, dir: "down", targetLabel: "17–21 $", streak: 2 },
-        { k: "cac", label: "Coût d'acquisition client", v: 310, disp: "310 $", target: 350, dir: "down", targetLabel: "≤ 350 $", streak: 3 },
-        { k: "leads", label: "Leads générés", v: 183, disp: "183", target: null, sub: "Meta 70 % · Google 30 %" },
-        { k: "spend", label: "Dépense pub", v: 4200, disp: "4 200 $", target: null },
-      ],
-      rent: [
-        { k: "labor", label: "Main-d'œuvre / CA", v: 46, disp: "46 %", target: 35, dir: "down", targetLabel: "30–35 %", streak: 6, sub: "le nerf de la guerre" },
-        { k: "rework", label: "Taux de reprise", v: 6.8, disp: "6,8 %", target: 4, dir: "down", targetLabel: "≤ 4 %", streak: 4 },
-        { k: "marge", label: "Marge brute", v: 34, disp: "34 %", target: 40, dir: "up", targetLabel: "≥ 40 %", streak: 3 },
-        { k: "rpp", label: "Revenu / personne / jour", v: 1180, disp: "1 180 $", target: 1400, dir: "up", targetLabel: "≥ 1 400 $", streak: 3 },
-      ],
-      funnel: [
-        { s: "Leads", n: 183 }, { s: "Contactés jour-même", n: 124 },
-        { s: "RDV bookés", n: 68 }, { s: "Visites réalisées", n: 51 },
-        { s: "Soumissions envoyées", n: 51 }, { s: "Closings", n: 24 },
-      ],
-    },
-    previous: {
-      label: "Juillet 2026",
-      ventes: [
-        { k: "contact", label: "Contact jour-même", v: 62, disp: "62 %", target: 80, dir: "up", targetLabel: "≥ 80 %", streak: 1 },
-        { k: "rdv", label: "Taux de RDV booké", v: 53, disp: "53 %", target: 60, dir: "up", targetLabel: "≥ 60 %", streak: 1 },
-        { k: "close", label: "Taux de closing", v: 32, disp: "32 %", target: 35, dir: "up", targetLabel: "35–45 %", streak: 1, sub: "creux vacances construction" },
-        { k: "deal", label: "Valeur moyenne / deal", v: 2380, disp: "2 380 $", target: 2400, dir: "up", targetLabel: "≥ 2 400 $", streak: 1 },
-      ],
-      acq: [
-        { k: "cpl", label: "Coût par lead", v: 26, disp: "26 $", target: 21, dir: "down", targetLabel: "17–21 $", streak: 2 },
-        { k: "cac", label: "Coût d'acquisition client", v: 395, disp: "395 $", target: 350, dir: "down", targetLabel: "≤ 350 $", streak: 2 },
-        { k: "leads", label: "Leads générés", v: 141, disp: "141", target: null, sub: "Meta 72 % · Google 28 %" },
-        { k: "spend", label: "Dépense pub", v: 3700, disp: "3 700 $", target: null },
-      ],
-      rent: [
-        { k: "labor", label: "Main-d'œuvre / CA", v: 47, disp: "47 %", target: 35, dir: "down", targetLabel: "30–35 %", streak: 5, sub: "le nerf de la guerre" },
-        { k: "rework", label: "Taux de reprise", v: 7.1, disp: "7,1 %", target: 4, dir: "down", targetLabel: "≤ 4 %", streak: 3 },
-        { k: "marge", label: "Marge brute", v: 32, disp: "32 %", target: 40, dir: "up", targetLabel: "≥ 40 %", streak: 2 },
-        { k: "rpp", label: "Revenu / personne / jour", v: 1050, disp: "1 050 $", target: 1400, dir: "up", targetLabel: "≥ 1 400 $", streak: 2 },
-      ],
-      funnel: [
-        { s: "Leads", n: 141 }, { s: "Contactés jour-même", n: 88 },
-        { s: "RDV bookés", n: 47 }, { s: "Visites réalisées", n: 34 },
-        { s: "Soumissions envoyées", n: 34 }, { s: "Closings", n: 11 },
-      ],
-    },
-    t3m: {
-      label: "3 derniers mois",
-      ventes: [
-        { k: "contact", label: "Contact jour-même", v: 66, disp: "66 %", target: 80, dir: "up", targetLabel: "≥ 80 %" },
-        { k: "rdv", label: "Taux de RDV booké", v: 54, disp: "54 %", target: 60, dir: "up", targetLabel: "≥ 60 %" },
-        { k: "close", label: "Taux de closing", v: 41, disp: "41 %", target: 35, dir: "up", targetLabel: "35–45 %", sub: "zone saine" },
-        { k: "deal", label: "Valeur moyenne / deal", v: 2470, disp: "2 470 $", target: 2400, dir: "up", targetLabel: "≥ 2 400 $" },
-      ],
-      acq: [
-        { k: "cpl", label: "Coût par lead", v: 24, disp: "24 $", target: 21, dir: "down", targetLabel: "17–21 $" },
-        { k: "cac", label: "Coût d'acquisition client", v: 355, disp: "355 $", target: 350, dir: "down", targetLabel: "≤ 350 $" },
-        { k: "leads", label: "Leads générés", v: 512, disp: "512", target: null, sub: "Meta 71 % · Google 29 %" },
-        { k: "spend", label: "Dépense pub", v: 12300, disp: "12 300 $", target: null },
-      ],
-      rent: [
-        { k: "labor", label: "Main-d'œuvre / CA", v: 47, disp: "47 %", target: 35, dir: "down", targetLabel: "30–35 %", sub: "le nerf de la guerre" },
-        { k: "rework", label: "Taux de reprise", v: 6.8, disp: "6,8 %", target: 4, dir: "down", targetLabel: "≤ 4 %" },
-        { k: "marge", label: "Marge brute", v: 33, disp: "33 %", target: 40, dir: "up", targetLabel: "≥ 40 %" },
-        { k: "rpp", label: "Revenu / personne / jour", v: 1110, disp: "1 110 $", target: 1400, dir: "up", targetLabel: "≥ 1 400 $" },
-      ],
-      funnel: [
-        { s: "Leads", n: 512 }, { s: "Contactés jour-même", n: 336 },
-        { s: "RDV bookés", n: 190 }, { s: "Visites réalisées", n: 141 },
-        { s: "Soumissions envoyées", n: 141 }, { s: "Closings", n: 58 },
-      ],
-    },
-  },
+  rent: [
+    { k: "labor", label: "Main-d'œuvre / CA", v: 46, disp: "46 %", target: 35, dir: "down", targetLabel: "30–35 %", streak: 6, sub: "le nerf de la guerre" },
+    { k: "rework", label: "Taux de reprise", v: 6.8, disp: "6,8 %", target: 4, dir: "down", targetLabel: "≤ 4 %", streak: 4 },
+    { k: "marge", label: "Marge brute", v: 34, disp: "34 %", target: 40, dir: "up", targetLabel: "≥ 40 %", streak: 3 },
+    { k: "rpp", label: "Revenu / personne / jour", v: 1180, disp: "1 180 $", target: 1400, dir: "up", targetLabel: "≥ 1 400 $", streak: 3 },
+  ],
+  fbads: null,
 };
 
-const ORDER = ["current", "previous", "t3m"];
 const TONE = {
   fix: { c: C.red, Icon: AlertOctagon, label: "Problème" },
   push: { c: C.teal, Icon: ArrowUpRight, label: "Prochaine étape" },
@@ -306,6 +516,21 @@ const FBADS_LABEL = {
 /* ---------- UI ---------- */
 function Dot({ status }) {
   return <span style={{ width: 8, height: 8, borderRadius: 99, background: STATUS[status].c, display: "inline-block" }} />;
+}
+
+function DeltaBadge({ delta, dir }) {
+  if (!delta || delta.value == null) return <span className="text-[11px]" style={{ color: C.muted }}>vs préc. —</span>;
+  const { value, unit } = delta;
+  const isFlat = value === 0;
+  const isGood = dir === "down" ? value < 0 : value > 0;
+  const c = isFlat ? C.muted : isGood ? C.teal : C.red;
+  const Icon = value > 0 ? TrendingUp : value < 0 ? TrendingDown : Activity;
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px]" style={{ color: c }}>
+      <Icon size={11} />{value > 0 ? "+" : ""}{value}{unit}
+      <span style={{ color: C.line }}>· vs préc.</span>
+    </span>
+  );
 }
 
 function KpiCard({ kpi }) {
@@ -340,6 +565,7 @@ function KpiCard({ kpi }) {
       ) : (
         <div className="mt-2 text-[11px]" style={{ color: C.muted }}>{kpi.sub || "contexte"}</div>
       )}
+      <div className="mt-1.5"><DeltaBadge delta={kpi.delta} dir={kpi.dir || "up"} /></div>
     </div>
   );
 }
@@ -430,7 +656,7 @@ function CacLeversPanel({ levers }) {
   const convDown = levers.conversion_change_pct != null && levers.conversion_change_pct < 0;
   const fmtDelta = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v} %`);
   return (
-    <Panel title="CAC — quel levier bouge ?" right={<span className="text-[11px]" style={{ color: C.muted }}>vs semaine précédente</span>}>
+    <Panel title="CAC — quel levier bouge ?" right={<span className="text-[11px]" style={{ color: C.muted }}>vs période précédente</span>}>
       <div className="grid grid-cols-2 gap-3 mb-3">
         <div>
           <div className="text-[11px] flex items-center gap-1" style={{ color: C.muted }}><Megaphone size={12} /> CPL (efficacité pub)</div>
@@ -449,6 +675,8 @@ function CacLeversPanel({ levers }) {
 /* ============================================================
    FB ADS — ad sets (COUPER/SCALER) + créas (FATIGUE/ANGLE/DIVERSITÉ)
    Toujours des suggestions à approuver — aucune mutation de campagne.
+   Fenêtre fixe 7j vs 7j (indépendante du sélecteur de plage — nécessite des
+   appels Meta au niveau ad set/créa, pas dans daily.json).
    ============================================================ */
 function fmtPctVal(v) { return v == null ? "—" : `${v} %`; }
 
@@ -539,37 +767,97 @@ function FbAdsSection({ fbads }) {
   );
 }
 
+/* ============================================================
+   SÉLECTEUR DE PLAGE + TENDANCE
+   ============================================================ */
+function RangeSelector({ rangeKey, setRangeKey, customStart, setCustomStart, customEnd, setCustomEnd, todayIso }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <select
+        value={rangeKey}
+        onChange={(e) => setRangeKey(e.target.value)}
+        className="text-xs px-3 py-1.5 rounded-lg"
+        style={{ background: C.panel, border: `1px solid ${C.line}`, color: C.text }}
+      >
+        {RANGE_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+      </select>
+      {rangeKey === "custom" && (
+        <>
+          <input type="date" value={customStart} max={todayIso} onChange={(e) => setCustomStart(e.target.value)}
+            className="text-xs px-2 py-1.5 rounded-lg" style={{ background: C.panel, border: `1px solid ${C.line}`, color: C.text, colorScheme: "dark" }} />
+          <span style={{ color: C.muted }}>→</span>
+          <input type="date" value={customEnd} max={todayIso} onChange={(e) => setCustomEnd(e.target.value)}
+            className="text-xs px-2 py-1.5 rounded-lg" style={{ background: C.panel, border: `1px solid ${C.line}`, color: C.text, colorScheme: "dark" }} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function TrendPanel({ daily, start, end }) {
+  const rows = bucketTrend(daily, start, end);
+  const total = rows.reduce((s, r) => s + r.value, 0);
+  return (
+    <Panel title="Historique — $ closé" right={<span className="text-[11px]" style={{ color: C.muted }}>total {money(total)} · {rows.length} points</span>}>
+      {rows.length ? (
+        <ResponsiveContainer width="100%" height={190}>
+          <BarChart data={rows} margin={{ top: 8, right: 8, left: -22, bottom: 0 }}>
+            <CartesianGrid stroke={C.line} strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="label" stroke={C.muted} tick={{ fontSize: 11 }} tickLine={false} axisLine={{ stroke: C.line }} />
+            <YAxis stroke={C.muted} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={44} />
+            <Tooltip cursor={{ fill: `${C.teal}12` }} contentStyle={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 12, color: C.text }} labelStyle={{ color: C.muted }} formatter={(v) => [money(v), "$ closé"]} />
+            <Bar dataKey="value" radius={[3, 3, 0, 0]} fill={C.teal} />
+          </BarChart>
+        </ResponsiveContainer>
+      ) : (
+        <p className="text-xs" style={{ color: C.muted }}>Pas de données closes sur cette plage.</p>
+      )}
+    </Panel>
+  );
+}
+
 /* ---------- app ---------- */
 export default function CockpitMAG() {
-  const [data, setData] = useState(DEMO);
-  const [pk, setPk] = useState("current");
+  const [kpis, setKpis] = useState(DEMO);
+  const [daily, setDaily] = useState(DEMO_DAILY);
+  const [rangeKey, setRangeKey] = useState("d7");
+  const todayIso = useMemo(() => todayInTZ(), []);
+  const [customStart, setCustomStart] = useState(() => addDays(todayIso, -6));
+  const [customEnd, setCustomEnd] = useState(todayIso);
   const [showSources, setShowSources] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
-    fetch("./data/kpis.json", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((json) => { if (alive && json?.periods) { setData(json); setPk(ORDER.find((k) => json.periods[k]) || Object.keys(json.periods)[0]); } })
-      .catch(() => {})
-      .finally(() => alive && setLoading(false));
+    Promise.all([
+      fetch("./data/kpis.json", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch("./data/daily.json", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]).then(([kpisJson, dailyJson]) => {
+      if (!alive) return;
+      if (kpisJson) setKpis(kpisJson);
+      if (Array.isArray(dailyJson) && dailyJson.length) setDaily(dailyJson);
+    }).finally(() => alive && setLoading(false));
     return () => { alive = false; };
   }, []);
 
-  const periodKeys = ORDER.filter((k) => data.periods[k]);
-  const P = data.periods[pk] || data.periods[periodKeys[0]];
-  const prevKey = pk === "current" ? "previous" : null;
-  const prev = prevKey ? data.periods[prevKey] : null;
-  const isLive = data.source === "live";
-  const stamp = data.generated_at
-    ? new Date(data.generated_at).toLocaleString("fr-CA", { dateStyle: "medium", timeStyle: "short" })
+  const { start, end } = computeRange(rangeKey, todayIso, customStart, customEnd);
+  const view = useMemo(() => buildPeriodView(daily, start, end), [daily, start, end]);
+  const { ventes, acq, funnel, cacLevers, prevForDiagnose } = view;
+  const rent = kpis.rent || DEMO.rent;
+
+  const isLive = kpis.source === "live";
+  const stamp = kpis.generated_at
+    ? new Date(kpis.generated_at).toLocaleString("fr-CA", { dateStyle: "medium", timeStyle: "short" })
     : null;
 
-  const diag = diagnose(P, prev);
-  const advices = [...P.ventes, ...P.acq, ...P.rent].map(adviceFor).filter(Boolean);
+  const P = { ventes, funnel };
+  const diag = diagnose(P, prevForDiagnose);
+  const advices = [...ventes, ...acq, ...rent].map(adviceFor).filter(Boolean);
   const fixes = advices.filter((a) => a.tone === "fix");
   const pushes = advices.filter((a) => a.tone === "push");
   const watches = advices.filter((a) => a.tone === "watch");
+
+  const prevRange = previousEquivalent(start, end);
 
   return (
     <div className="min-h-screen w-full" style={{ background: C.ink, color: C.text, fontFamily: "'Inter', system-ui, sans-serif" }}>
@@ -590,15 +878,16 @@ export default function CockpitMAG() {
             <p className="text-xs mt-1" style={{ color: C.muted }}>
               État de santé + diagnostic — Ventes · Acquisition · Rentabilité{stamp && <span> · maj {stamp}</span>}
             </p>
+            <p className="text-[11px] mt-0.5" style={{ color: C.line }}>
+              {fmtDateShort(start)} → {fmtDateShort(end)} · vs {fmtDateShort(prevRange.start)} → {fmtDateShort(prevRange.end)}
+            </p>
           </div>
-          <div className="flex gap-1 rounded-lg p-1" style={{ background: C.panel, border: `1px solid ${C.line}` }}>
-            {periodKeys.map((key) => (
-              <button key={key} onClick={() => setPk(key)} className="text-xs px-3 py-1.5 rounded-md transition-colors"
-                style={{ background: pk === key ? C.teal : "transparent", color: pk === key ? C.ink : C.muted, fontWeight: pk === key ? 600 : 400 }}>
-                {data.periods[key].label}
-              </button>
-            ))}
-          </div>
+          <RangeSelector
+            rangeKey={rangeKey} setRangeKey={setRangeKey}
+            customStart={customStart} setCustomStart={setCustomStart}
+            customEnd={customEnd} setCustomEnd={setCustomEnd}
+            todayIso={todayIso}
+          />
         </div>
 
         {/* DIAGNOSTIC — priorité */}
@@ -613,21 +902,21 @@ export default function CockpitMAG() {
 
         {/* leviers */}
         <div className="flex flex-col md:flex-row gap-3 mb-6">
-          <LeverTile name="Ventes" kpis={P.ventes} hero="close" />
-          <LeverTile name="Acquisition" kpis={P.acq} hero="cpl" />
-          <LeverTile name="Rentabilité" kpis={P.rent} hero="labor" />
+          <LeverTile name="Ventes" kpis={ventes} hero="close" />
+          <LeverTile name="Acquisition" kpis={acq} hero="cpl" />
+          <LeverTile name="Rentabilité" kpis={rent} hero="labor" />
         </div>
 
-        {[["Ventes", "ventes"], ["Acquisition", "acq"], ["Rentabilité", "rent"]].map(([title, key]) => (
+        {[["Ventes", "ventes", ventes], ["Acquisition", "acq", acq], ["Rentabilité", "rent", rent]].map(([title, key, arr]) => (
           <div className="mb-4" key={key}>
             <h2 className="text-xs uppercase tracking-widest mb-3" style={{ color: C.muted }}>{title}</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {P[key].map((k) => <KpiCard key={k.k} kpi={k} />)}
+              {arr.map((k) => <KpiCard key={k.k} kpi={k} />)}
             </div>
             {key === "acq" && (
               <>
-                <div className="mt-3"><CacLeversPanel levers={P.cac_levers} /></div>
-                <FbAdsSection fbads={data.fbads} />
+                <div className="mt-3"><CacLeversPanel levers={cacLevers} /></div>
+                <FbAdsSection fbads={kpis.fbads} />
               </>
             )}
           </div>
@@ -643,40 +932,45 @@ export default function CockpitMAG() {
           </div>
         ) : null}
 
-        {/* funnel + main-d'œuvre */}
+        {/* funnel + tendance */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3 mt-6">
-          <Panel title="Entonnoir SETTING → CLOSING" right={<span className="text-[11px]" style={{ color: C.muted }}>{P.label}</span>}>
-            <Funnel rows={P.funnel} />
+          <Panel title="Entonnoir SETTING → CLOSING" right={<span className="text-[11px]" style={{ color: C.muted }}>{fmtDateShort(start)} → {fmtDateShort(end)}</span>}>
+            <Funnel rows={funnel} />
           </Panel>
-          <Panel title="Main-d'œuvre / CA vs cible" right={<span className="text-[11px]" style={{ color: C.red }}>cible 30–35 %</span>}>
-            <ResponsiveContainer width="100%" height={210}>
-              <LineChart data={data.labor_trend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                <CartesianGrid stroke={C.line} strokeDasharray="3 3" vertical={false} />
-                <ReferenceArea y1={30} y2={35} fill={C.teal} fillOpacity={0.14} />
-                <XAxis dataKey="m" stroke={C.muted} tick={{ fontSize: 11 }} tickLine={false} axisLine={{ stroke: C.line }} />
-                <YAxis stroke={C.muted} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} domain={[25, 55]} unit=" %" width={44} />
-                <Tooltip contentStyle={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 12, color: C.text }} labelStyle={{ color: C.muted }} formatter={(v) => [`${v} %`, "Main-d'œuvre"]} />
-                <Line type="monotone" dataKey="pct" stroke={C.red} strokeWidth={2.5} dot={{ r: 3, fill: C.red }} activeDot={{ r: 5 }} />
-              </LineChart>
-            </ResponsiveContainer>
-            <p className="text-[11px] mt-2" style={{ color: C.muted }}>Bande verte = cible 30–35 %. Chaque point au-dessus, c'est de la marge qui dort. Section parquée — données démo tant que le module rentabilité n'est pas branché.</p>
-          </Panel>
+          <TrendPanel daily={daily} start={start} end={end} />
         </div>
 
-        {/* saisonnalité */}
-        <Panel title="Saisonnalité du CA (indice mensuel)" right={<span className="text-[11px]" style={{ color: C.muted }}>pic mai–juin · creux vacances construction · mort nov.–mars</span>}>
-          <ResponsiveContainer width="100%" height={190}>
-            <BarChart data={data.season} margin={{ top: 8, right: 8, left: -22, bottom: 0 }}>
+        {/* rentabilité — parquée */}
+        <Panel title="Main-d'œuvre / CA vs cible" right={<span className="text-[11px]" style={{ color: C.red }}>cible 30–35 % · parqué</span>}>
+          <ResponsiveContainer width="100%" height={210}>
+            <LineChart data={kpis.labor_trend || DEMO.labor_trend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
               <CartesianGrid stroke={C.line} strokeDasharray="3 3" vertical={false} />
+              <ReferenceArea y1={30} y2={35} fill={C.teal} fillOpacity={0.14} />
               <XAxis dataKey="m" stroke={C.muted} tick={{ fontSize: 11 }} tickLine={false} axisLine={{ stroke: C.line }} />
-              <YAxis stroke={C.muted} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={34} />
-              <Tooltip cursor={{ fill: `${C.teal}12` }} contentStyle={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 12, color: C.text }} labelStyle={{ color: C.muted }} formatter={(v) => [v, "Indice CA"]} />
-              <Bar dataKey="ca" radius={[3, 3, 0, 0]}>
-                {data.season.map((d, i) => <Cell key={i} fill={d.ca >= 70 ? C.teal : d.ca >= 40 ? C.tealDim : C.line} />)}
-              </Bar>
-            </BarChart>
+              <YAxis stroke={C.muted} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} domain={[25, 55]} unit=" %" width={44} />
+              <Tooltip contentStyle={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 12, color: C.text }} labelStyle={{ color: C.muted }} formatter={(v) => [`${v} %`, "Main-d'œuvre"]} />
+              <Line type="monotone" dataKey="pct" stroke={C.red} strokeWidth={2.5} dot={{ r: 3, fill: C.red }} activeDot={{ r: 5 }} />
+            </LineChart>
           </ResponsiveContainer>
+          <p className="text-[11px] mt-2" style={{ color: C.muted }}>Bande verte = cible 30–35 %. Section parquée — données démo tant que le module rentabilité n'est pas branché (Jobber timesheets, phase séparée).</p>
         </Panel>
+
+        {/* saisonnalité */}
+        <div className="mt-3">
+          <Panel title="Saisonnalité du CA (indice mensuel)" right={<span className="text-[11px]" style={{ color: C.muted }}>pic mai–juin · creux vacances construction · mort nov.–mars</span>}>
+            <ResponsiveContainer width="100%" height={190}>
+              <BarChart data={kpis.season || DEMO.season} margin={{ top: 8, right: 8, left: -22, bottom: 0 }}>
+                <CartesianGrid stroke={C.line} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="m" stroke={C.muted} tick={{ fontSize: 11 }} tickLine={false} axisLine={{ stroke: C.line }} />
+                <YAxis stroke={C.muted} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={34} />
+                <Tooltip cursor={{ fill: `${C.teal}12` }} contentStyle={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 12, color: C.text }} labelStyle={{ color: C.muted }} formatter={(v) => [v, "Indice CA"]} />
+                <Bar dataKey="ca" radius={[3, 3, 0, 0]}>
+                  {(kpis.season || DEMO.season).map((d, i) => <Cell key={i} fill={d.ca >= 70 ? C.teal : d.ca >= 40 ? C.tealDim : C.line} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </Panel>
+        </div>
 
         {/* sources */}
         <button onClick={() => setShowSources((s) => !s)} className="mt-4 flex items-center gap-1.5 text-xs" style={{ color: C.muted }}>
@@ -685,8 +979,8 @@ export default function CockpitMAG() {
         </button>
         {showSources && (
           <div className="mt-3 rounded-lg p-4 text-xs grid grid-cols-1 sm:grid-cols-3 gap-4" style={{ background: C.panel, border: `1px solid ${C.line}`, color: C.muted }}>
-            <div><div className="font-medium mb-1" style={{ color: C.teal }}>Ventes</div>Funnel + closing → opportunités GHL (statut won/lost). Visites/soumissions → calendrier GHL + quotes Jobber (lecture seule). Valeur / deal → monetaryValue GHL.</div>
-            <div><div className="font-medium mb-1" style={{ color: C.teal }}>Acquisition</div>CPL / dépense / leads / FB Ads → Meta Ads API (ad set + créa, 2 fenêtres). CAC → dépense Meta ÷ nouveaux clients GHL.</div>
+            <div><div className="font-medium mb-1" style={{ color: C.teal }}>Ventes</div>Série journalière (docs/data/daily.json) agrégée sur la plage choisie : GHL (leads, RDV, visites, closings) + Jobber quotes (soumissions, lecture seule). Le front somme les comptes bruts puis divise — jamais de moyenne de taux.</div>
+            <div><div className="font-medium mb-1" style={{ color: C.teal }}>Acquisition</div>CPL / CPS / dépense / leads → dépense Meta journalière ÷ compte GHL, sur la même plage. FB Ads (ad set/créa) → fenêtre fixe 7j vs 7j, Meta Ads API. CAC → dépense Meta ÷ nouveaux clients GHL.</div>
             <div><div className="font-medium mb-1" style={{ color: C.teal }}>Rentabilité</div>Parquée cette phase-ci — données démo. Main-d'œuvre → timesheets Jobber × taux chargé (module séparé, à venir).</div>
           </div>
         )}
