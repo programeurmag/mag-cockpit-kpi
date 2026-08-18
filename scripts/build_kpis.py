@@ -153,8 +153,13 @@ RENT_PARKED = [
 def http_get_json(url, params=None, headers=None):
     qs = f"?{urllib.parse.urlencode(params)}" if params else ""
     req = urllib.request.Request(url + qs, headers={"User-Agent": UA, **(headers or {})})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")
+        print(f"  ! HTTP {e.code} sur {url}\n    {body}", file=sys.stderr)
+        raise
 
 
 def http_post_json(url, payload, headers=None):
