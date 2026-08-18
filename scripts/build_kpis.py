@@ -66,13 +66,16 @@ GHL_API = "https://services.leadconnectorhq.com"
 GHL_VERSION = "2021-07-28"
 
 GHL_PIPELINES = {
-    "setting": "Q8EYGzimcGKdgZeTbu7D",  # SETTING : Nouveau lead -> ... -> RDV BOOKÉ
+    "setting": "Q8EYGzimcGKdgZeTbu7D",  # SETTING : Nouveau lead -> ... -> RDV BOOKÉ (utilisé)
     "closing": "DRsf93wLTlsI55zjmywa",  # CLOSING : RDV À VENIR -> SUIVI À FAIRE -> EN ATTENTE DE DÉPÔT
+    # ^ "closing" n'est PLUS utilisé pour le vendu depuis le 2026-08-18 — le
+    # statut won de ce pipeline sous-comptait le closing rate réel (25% GHL vs
+    # 34% Jobber sur le même mois). Jobber (quotes approved/converted) est
+    # maintenant la source de vérité pour Soumissions/Closings/$ vendu. Gardé
+    # ici en référence seulement.
 }
 
-# IMPORTANT : GHL n'a PAS de stage "Won"/"Lost" dédié dans ces pipelines.
-# Le won/lost vit sur le champ natif `status` de l'opportunité (open/won/lost/
-# abandoned), indépendant du stage. On filtre là-dessus, jamais par stage id.
+# LEGACY — plus utilisés pour le vendu (voir ci-dessus), gardés en référence.
 GHL_WON_STATUS = "won"
 GHL_LOST_STATUS = "lost"
 
@@ -223,6 +226,28 @@ def ghl_get_contact(contact_id):
     return res.get("contact", {})
 
 
+def ghl_find_contact(email=None, phone=None):
+    """Cherche un contact GHL par email, puis par téléphone en repli.
+    Lecture seule. Retourne None si rien trouvé."""
+    for query in (email, phone):
+        if not query:
+            continue
+        res = http_get_json(f"{GHL_API}/contacts/", {"locationId": GHL_LOCATION_ID, "query": query, "limit": 3},
+                             ghl_headers())
+        contacts = res.get("contacts", [])
+        if contacts:
+            return contacts[0]
+    return None
+
+
+def ghl_first_touch_ad_id(contact):
+    """attributions[] sur le contact GHL, isFirst=true -> utmAdId (first-touch)."""
+    for a in contact.get("attributions", []) or []:
+        if a.get("isFirst"):
+            return a.get("utmAdId"), a.get("utmContent")
+    return None, None
+
+
 def jobber_access_token():
     """ATTENTION : si Jobber fait un jour tourner (rotate) le refresh token,
     ce script écrit le nouveau en LOCAL (.env) mais ne peut pas mettre à jour
@@ -262,7 +287,9 @@ def jobber_recent_quotes(access_token, since_dt, max_pages=10):
               quoteStatus
               createdAt
               sentAt
-              client {{ name emails {{ address }} phones {{ number }} }}
+              transitionedAt
+              lastTransitioned {{ approvedAt convertedAt }}
+              client {{ id name emails {{ address }} phones {{ number }} }}
               amounts {{ total }}
             }}
             pageInfo {{ hasNextPage endCursor }}
@@ -347,6 +374,31 @@ def meta_insights_daily(since, until):
     return out
 
 
+def meta_ad_insights_daily(since, until):
+    """Comme meta_insights_daily mais niveau AD (level=ad), time_increment=1,
+    sur tout le backfill — sert à agréger spend/leads par créa en YTD/mois/
+    semaine côté Python (jamais de moyenne de taux, toujours somme puis
+    division). Lecture seule."""
+    params = {
+        "level": "ad",
+        "fields": "ad_id,ad_name,adset_id,adset_name,spend,impressions,clicks,actions",
+        "time_range": json.dumps({"since": since.isoformat(), "until": until.isoformat()}),
+        "time_increment": 1,
+        "limit": 500,
+    }
+    out = []
+    res = meta_get(f"{META_AD_ACCOUNT}/insights", params)
+    out.extend(res.get("data", []))
+    next_url = res.get("paging", {}).get("next")
+    while next_url:
+        req = urllib.request.Request(next_url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            res = json.loads(r.read().decode())
+        out.extend(res.get("data", []))
+        next_url = res.get("paging", {}).get("next")
+    return out
+
+
 def meta_leads_count(row):
     for a in row.get("actions", []):
         if a.get("action_type") in META_LEAD_ACTION_TYPES:
@@ -400,16 +452,11 @@ def daterange(start_date, end_date):
 
 
 # =============================================================================
-# VENTES — funnel + KPIs (fenêtre courante uniquement, voir décision du 2026-08-17
-# : pas d'historique pré-changement de pipeline cette phase-ci)
+# VENTES — funnel + KPIs. Depuis le 2026-08-18 : Leads/Contact/RDV viennent de
+# GHL (haut de l'entonnoir), Soumissions/Closings/$ vendu viennent de JOBBER
+# (source de vérité — GHL closing rate était faux, voir chat : 25% vs 34% sur
+# le même mois, 64% de revenu manquant côté GHL).
 # =============================================================================
-
-def fetch_ghl_raw():
-    """Un seul aller-retour réseau pour chaque source, réutilisé pour la
-    fenêtre courante ET la fenêtre précédente (CAC — voir build_cac)."""
-    setting_opps = ghl_search_opportunities(GHL_PIPELINES["setting"])
-    closing_won_opps = ghl_search_opportunities(GHL_PIPELINES["closing"], {"status": GHL_WON_STATUS})
-    return setting_opps, closing_won_opps
 
 
 def fetch_calendar_events(start_ms, end_ms):
@@ -422,14 +469,21 @@ def fetch_calendar_events(start_ms, end_ms):
     return events
 
 
-def build_daily_series(backfill_start, end_date, setting_opps, closing_won_opps, events, jobber_quotes, meta_daily_rows):
+def build_daily_series(backfill_start, end_date, setting_opps, events, jobber_quotes, meta_daily_rows):
     """Série journalière — COMPTES BRUTS par jour (jamais de taux ici, le
-    front agrège/divise). Bucketé en TZ (America/Toronto). Chaque source est
-    bucketée par SA propre date : leads par date de création, closings/
-    won_value par date de GAIN (lastStatusChangeAt, avec repli si absent —
-    voir warning stderr), RDV par date de prise de RDV, visites par date de
-    RDV lui-même, soumissions par date d'envoi (Jobber sentAt), spend par
-    jour Meta (time_increment=1)."""
+    front agrège/divise). Bucketé en TZ (America/Toronto).
+
+    SOURCE DE VÉRITÉ (décision 2026-08-18, voir chat) : GHL est croche pour le
+    vendu (closing rate GHL 25% vs Jobber 34% sur le même mois, 64% de revenu
+    manquant côté GHL) — donc :
+      - Leads / Contactés jour-même / RDV        -> GHL (haut de l'entonnoir)
+      - Soumissions envoyées / Closings / $ vendu -> JOBBER (bas de l'entonnoir)
+    Soumissions = quotes qui ont quitté "draft" (statut awaiting_response ou
+    plus loin), bucketées par date d'ENVOI (sentAt). Closings = quotes
+    approved/converted, bucketées par leur date de transition DÉDIÉE
+    (lastTransitioned.approvedAt / .convertedAt — jamais createdAt), avec
+    repli sur transitionedAt/createdAt si le champ dédié manque (log
+    l'approximation, voir warning stderr)."""
     days = {}
     for d in daterange(backfill_start, end_date):
         key = d.isoformat()
@@ -481,33 +535,46 @@ def build_daily_series(backfill_start, end_date, setting_opps, closing_won_opps,
             if key in days:
                 days[key]["visits"] += 1
 
-    # --- soumissions envoyées (Jobber, date d'envoi) ---
+    # --- soumissions envoyées (JOBBER, statut != draft, date = sentAt) ---
+    approx_sent = 0
     for q in jobber_quotes:
-        sent = q.get("sentAt")
-        if not sent:
+        if q.get("quoteStatus") == "draft":
             continue
-        dt = parse_ghl_dt(sent)
+        raw = q.get("sentAt")
+        is_approx = not raw
+        raw = raw or q.get("createdAt")
+        dt = parse_ghl_dt(raw)
         if not dt:
             continue
+        if is_approx:
+            approx_sent += 1
         key = dt.astimezone(TZ).date().isoformat()
         if key in days:
             days[key]["quotes"] += 1
+    if approx_sent:
+        print(f"  ! {approx_sent} quote(s) sans sentAt — date d'envoi approximée (createdAt)", file=sys.stderr)
 
-    # --- closings + won_value (date de GAIN, pas de création) ---
-    approx_count = 0
-    for o in closing_won_opps:
-        gain_raw = o.get("lastStatusChangeAt") or o.get("updatedAt") or o.get("createdAt")
-        if not o.get("lastStatusChangeAt"):
-            approx_count += 1
-        dt = parse_ghl_dt(gain_raw)
+    # --- closings + won_value (JOBBER, statut approved/converted, date DÉDIÉE) ---
+    approx_won = 0
+    for q in jobber_quotes:
+        status = q.get("quoteStatus")
+        if status not in ("approved", "converted"):
+            continue
+        lt = q.get("lastTransitioned") or {}
+        raw = lt.get("approvedAt") if status == "approved" else lt.get("convertedAt")
+        is_approx = not raw
+        raw = raw or q.get("transitionedAt") or q.get("createdAt")
+        dt = parse_ghl_dt(raw)
         if not dt:
             continue
+        if is_approx:
+            approx_won += 1
         key = dt.astimezone(TZ).date().isoformat()
         if key in days:
             days[key]["closings"] += 1
-            days[key]["won_value"] += o.get("monetaryValue", 0) or 0
-    if approx_count:
-        print(f"  ! {approx_count} closing(s) sans lastStatusChangeAt — date de gain approximée (updatedAt/createdAt)", file=sys.stderr)
+            days[key]["won_value"] += (q.get("amounts") or {}).get("total", 0) or 0
+    if approx_won:
+        print(f"  ! {approx_won} quote(s) vendue(s) sans date dédiée (approved/convertedAt) — approximée via transitionedAt/createdAt", file=sys.stderr)
 
     # --- dépense Meta (time_increment=1, bucket = date_start) ---
     for row in meta_daily_rows:
@@ -522,12 +589,32 @@ def count_leads_in_window(setting_opps, start, end):
     return sum(1 for o in setting_opps if in_window(parse_ghl_dt(o.get("createdAt")), start, end))
 
 
-def count_closings_in_window(closing_won_opps, start, end):
-    rows = [o for o in closing_won_opps if in_window(parse_ghl_dt(o.get("lastStatusChangeAt")), start, end)]
-    return rows
+def jobber_quote_sent_dt(q):
+    """Date d'envoi (sortie de draft). sentAt en priorité, repli createdAt."""
+    return parse_ghl_dt(q.get("sentAt") or q.get("createdAt"))
 
 
-def build_ventes(setting_opps, closing_won_opps, events, jobber_quotes, start, end):
+def jobber_quote_won_dt(q):
+    """Date de vente DÉDIÉE (approved/converted uniquement) — jamais createdAt.
+    Repli sur transitionedAt/createdAt seulement si le champ dédié manque."""
+    status = q.get("quoteStatus")
+    if status not in ("approved", "converted"):
+        return None
+    lt = q.get("lastTransitioned") or {}
+    raw = lt.get("approvedAt") if status == "approved" else lt.get("convertedAt")
+    return parse_ghl_dt(raw or q.get("transitionedAt") or q.get("createdAt"))
+
+
+def jobber_sent_quotes_in_window(jobber_quotes, start, end):
+    return [q for q in jobber_quotes if q.get("quoteStatus") != "draft"
+            and in_window(jobber_quote_sent_dt(q), start, end)]
+
+
+def jobber_won_quotes_in_window(jobber_quotes, start, end):
+    return [q for q in jobber_quotes if in_window(jobber_quote_won_dt(q), start, end)]
+
+
+def build_ventes(setting_opps, events, jobber_quotes, start, end):
     leads = [o for o in setting_opps if in_window(parse_ghl_dt(o.get("createdAt")), start, end)]
 
     booked = [e for e in events if e.get("appointmentStatus") != "cancelled"
@@ -551,10 +638,8 @@ def build_ventes(setting_opps, closing_won_opps, events, jobber_quotes, start, e
                 same_day_contacts += 1
                 break
 
-    submissions = [q for q in jobber_quotes if q.get("sentAt")
-                   and in_window(parse_ghl_dt(q["sentAt"]), start, end)]
-
-    closings = count_closings_in_window(closing_won_opps, start, end)
+    submissions = jobber_sent_quotes_in_window(jobber_quotes, start, end)
+    closings = jobber_won_quotes_in_window(jobber_quotes, start, end)
 
     n_leads = len(leads)
     n_rdv = len(booked)
@@ -562,7 +647,7 @@ def build_ventes(setting_opps, closing_won_opps, events, jobber_quotes, start, e
     n_subs = len(submissions)
     n_close = len(closings)
 
-    deal_values = [o.get("monetaryValue", 0) for o in closings if o.get("monetaryValue")]
+    deal_values = [(q.get("amounts") or {}).get("total", 0) for q in closings if (q.get("amounts") or {}).get("total")]
     avg_deal = round(sum(deal_values) / len(deal_values)) if deal_values else 0
 
     pct_contact = round(100 * same_day_contacts / n_leads) if n_leads else 0
@@ -870,10 +955,13 @@ def reco_creative_scale(creatives):
 
 
 def reco_creative_sample(creatives):
-    """Échantillon trop petit pour trancher — affiché quand même, marqué non fiable."""
+    """Échantillon trop petit pour trancher — affiché quand même, marqué non
+    fiable. UNIQUEMENT pour les créas avec AU MOINS 1 vente (0 vente = "rien
+    vendu encore", pas "petit échantillon" — sinon ça flag chaque créa qui
+    n'a juste pas encore vendu, bruit énorme sur un compte avec 20+ créas)."""
     out = []
     for c in creatives:
-        if c["roas"] is not None and not c["significant"]:
+        if c["roas"] is not None and c["closings"] > 0 and not c["significant"]:
             out.append({
                 "type": "echantillon_faible", "level": "creative", "target": c["name"],
                 "title": f"Échantillon trop petit — {c['name']}",
@@ -916,76 +1004,162 @@ def reco_angle_roas(creatives):
     }]
 
 
-def build_creative_revenue(closings_a, ads_merged, since_a, until_a):
-    """Bucket le $ closé par adId (first-touch), joint au spend/CPL déjà pull
-    (niveau ad, fenêtre A) + créatif Meta (thumbnail/nom, lecture seule)."""
-    by_ad = {}
+def build_creative_revenue_ytd(jobber_quotes, meta_ad_daily_rows, backfill_start, end_date):
+    """Revenu + ROAS par créatif sur TOUT le backfill (YTD), avec agrégats
+    pré-calculés par mois et par semaine (lundi) pour le toggle front —
+    évite d'envoyer les ~milliers de lignes journalières brutes au front.
+    Montre TOUS les ad_id qui ont eu de la dépense/impressions dans la
+    fenêtre, pas juste ceux avec un closing (ROAS 0 affiché, jamais caché).
+
+    Attribution : quote GAGNÉE Jobber (approved/converted) -> match le client
+    au contact GHL par email puis téléphone (lecture seule, en cache par
+    email/téléphone pour éviter les doublons de requête) -> attributions[]
+    du contact GHL, isFirst=true -> utmAdId (first-touch, pas last-touch)."""
+
+    def bucket():
+        return {"spend": 0.0, "impressions": 0.0, "clicks": 0.0, "leads": 0}
+
+    ad_meta = {}      # ad_id -> {name, adset_name}
+    ytd_spend = {}    # ad_id -> bucket
+    month_spend = {}  # (ad_id, "YYYY-MM") -> bucket
+    week_spend = {}   # (ad_id, monday_iso) -> bucket
+
+    for row in meta_ad_daily_rows:
+        ad_id = row.get("ad_id")
+        if not ad_id:
+            continue
+        m = ad_meta.setdefault(ad_id, {})
+        if not m.get("name"):
+            m["name"] = row.get("ad_name")
+        if not m.get("adset_name"):
+            m["adset_name"] = row.get("adset_name")
+        try:
+            day = date.fromisoformat(row.get("date_start"))
+        except (TypeError, ValueError):
+            continue
+        monday = day - timedelta(days=day.weekday())
+        month_key = (ad_id, row["date_start"][:7])
+        week_key = (ad_id, monday.isoformat())
+
+        spend, impressions, clicks, leads = _num(row, "spend"), _num(row, "impressions"), _num(row, "clicks"), meta_leads_count(row)
+        for store, key in ((ytd_spend, ad_id), (month_spend, month_key), (week_spend, week_key)):
+            b = store.setdefault(key, bucket())
+            b["spend"] += spend
+            b["impressions"] += impressions
+            b["clicks"] += clicks
+            b["leads"] += leads
+
+    # --- Jobber : quotes gagnées -> match GHL (email/tél, en cache) -> ad_id first-touch ---
+    match_cache = {}
+
+    def match_quote_ad_id(q):
+        client = q.get("client") or {}
+        emails = client.get("emails") or []
+        phones = client.get("phones") or []
+        email = emails[0]["address"] if emails else None
+        phone = phones[0]["number"] if phones else None
+        cache_key = (email, phone)
+        if cache_key not in match_cache:
+            contact = None
+            try:
+                contact = ghl_find_contact(email, phone)
+            except Exception as e:
+                print(f"  ! recherche contact GHL ({email or phone}) : {e}", file=sys.stderr)
+            match_cache[cache_key] = contact
+        contact = match_cache[cache_key]
+        if not contact:
+            return None
+        ad_id, _utm = ghl_first_touch_ad_id(contact)
+        return ad_id
+
+    ytd_won = {}
+    month_won = {}
+    week_won = {}
     unattributed_value = 0.0
     unattributed_n = 0
 
-    for o in closings_a:
-        cid = o.get("contactId")
-        value = o.get("monetaryValue", 0) or 0
-        ad_id = None
-        utm_content = None
-        if cid:
-            try:
-                contact = ghl_get_contact(cid)
-                attr = contact.get("attributionSource") or {}
-                ad_id = attr.get("adId")
-                utm_content = attr.get("utmContent")
-            except Exception as e:
-                print(f"  ! contact {cid} indisponible : {e}", file=sys.stderr)
+    for q in jobber_quotes:
+        if q.get("quoteStatus") not in ("approved", "converted"):
+            continue
+        won_dt = jobber_quote_won_dt(q)
+        if not won_dt:
+            continue
+        value = (q.get("amounts") or {}).get("total", 0) or 0
+        ad_id = match_quote_ad_id(q)
         if not ad_id:
             unattributed_value += value
             unattributed_n += 1
             continue
-        b = by_ad.setdefault(ad_id, {"won_value": 0.0, "closings": 0, "utm_content": utm_content})
-        b["won_value"] += value
-        b["closings"] += 1
+        day = won_dt.astimezone(TZ).date()
+        monday = day - timedelta(days=day.weekday())
+        month_key = (ad_id, day.isoformat()[:7])
+        week_key = (ad_id, monday.isoformat())
+        for store, key in ((ytd_won, ad_id), (month_won, month_key), (week_won, week_key)):
+            b = store.setdefault(key, {"won_value": 0.0, "closings": 0})
+            b["won_value"] += value
+            b["closings"] += 1
 
-    ads_by_id = {r["id"]: r for r in ads_merged}
-    creatives = []
-    for ad_id, b in by_ad.items():
-        ad_row = ads_by_id.get(ad_id)
-        spend = ad_row["spend_a"] if ad_row else None
-        leads = ad_row["leads_a"] if ad_row else None
-        cpl = ad_row["cpl_a"] if ad_row else None
-        name = (ad_row["name"] if ad_row else None) or b["utm_content"] or ad_id
-        adset_name = ad_row.get("adset_name") if ad_row else None
-
-        thumbnail = None
+    # --- thumbnails/nom Meta — un appel par ad_id impliqué (spend OU closing) ---
+    all_ad_ids = set(ad_meta.keys()) | set(ytd_won.keys())
+    thumbnails = {}
+    for ad_id in all_ad_ids:
         try:
-            meta_info = meta_ad_creative(ad_id)
-            thumbnail = (meta_info.get("creative") or {}).get("thumbnail_url")
-            if not adset_name:
-                adset_name = (meta_info.get("adset") or {}).get("name")
+            info = meta_ad_creative(ad_id)
+            thumbnails[ad_id] = (info.get("creative") or {}).get("thumbnail_url")
+            m = ad_meta.setdefault(ad_id, {})
+            if not m.get("name"):
+                m["name"] = info.get("name")
+            if not m.get("adset_name"):
+                m["adset_name"] = (info.get("adset") or {}).get("name")
         except Exception as e:
             print(f"  ! créatif {ad_id} indisponible : {e}", file=sys.stderr)
 
-        won_value = round(b["won_value"], 2)
-        cost_per_job = round(spend / b["closings"], 2) if spend and b["closings"] else None
+    def make_row(ad_id, spend_totals, won_totals):
+        meta = ad_meta.get(ad_id, {})
+        name = meta.get("name") or ad_id
+        spend = round(spend_totals["spend"], 2) if spend_totals else None
+        leads = int(spend_totals["leads"]) if spend_totals else None
+        cpl = round(spend / leads, 2) if spend and leads else None
+        impressions = int(spend_totals["impressions"]) if spend_totals else None
+        closings = won_totals["closings"] if won_totals else 0
+        won_value = round(won_totals["won_value"], 2) if won_totals else 0.0
+        cost_per_job = round(spend / closings, 2) if spend and closings else None
         roas = round(won_value / spend, 2) if spend else None
-
-        creatives.append({
-            "ad_id": ad_id, "name": name, "adset_name": adset_name,
-            "angle": classify_angle(name), "thumbnail": thumbnail,
-            "spend": spend, "leads": leads, "cpl": cpl,
-            "closings": b["closings"], "won_value": won_value,
+        return {
+            "ad_id": ad_id, "name": name, "adset_name": meta.get("adset_name"),
+            "angle": classify_angle(name), "thumbnail": thumbnails.get(ad_id),
+            "spend": spend, "leads": leads, "cpl": cpl, "impressions": impressions,
+            "closings": closings, "won_value": won_value,
             "cost_per_job": cost_per_job, "roas": roas,
-            "significant": b["closings"] >= CREATIVE_MIN_CLOSINGS_SIGNIFICANT,
-        })
+            "significant": closings >= CREATIVE_MIN_CLOSINGS_SIGNIFICANT,
+        }
 
-    creatives.sort(key=lambda c: (c["roas"] if c["roas"] is not None else -1), reverse=True)
+    creatives_ytd = [make_row(ad_id, ytd_spend.get(ad_id), ytd_won.get(ad_id)) for ad_id in all_ad_ids]
+    creatives_ytd.sort(key=lambda c: (c["roas"] if c["roas"] is not None else -1), reverse=True)
+
+    def build_period_rows(spend_store, won_store):
+        keys = set(spend_store.keys()) | set(won_store.keys())
+        out = []
+        for ad_id, period in keys:
+            row = make_row(ad_id, spend_store.get((ad_id, period)), won_store.get((ad_id, period)))
+            row["period"] = period
+            out.append(row)
+        out.sort(key=lambda r: (r["period"], -(r["roas"] if r["roas"] is not None else -1)))
+        return out
+
+    creatives_by_month = build_period_rows(month_spend, month_won)
+    creatives_by_week = build_period_rows(week_spend, week_won)
 
     recos = (
-        reco_creative_trap(creatives) + reco_creative_scale(creatives) +
-        reco_creative_sample(creatives) + reco_angle_roas(creatives)
+        reco_creative_trap(creatives_ytd) + reco_creative_scale(creatives_ytd) +
+        reco_creative_sample(creatives_ytd) + reco_angle_roas(creatives_ytd)
     )
 
     return {
-        "window": {"since": since_a.isoformat(), "until": until_a.isoformat()},
-        "creatives": creatives,
+        "window": {"since": backfill_start.isoformat(), "until": end_date.isoformat()},
+        "creatives_ytd": creatives_ytd,
+        "creatives_by_month": creatives_by_month,
+        "creatives_by_week": creatives_by_week,
         "unattributed": {"won_value": round(unattributed_value, 2), "closings": unattributed_n},
         "recommendations": recos,
     }
@@ -1068,20 +1242,17 @@ def main():
     print(f"Fenêtre précédente : {start_b.isoformat()} -> {end_b.isoformat()}")
     print(f"Backfill journalier : {backfill_start.isoformat()} -> {now.date().isoformat()}")
 
-    print("\n[1/6] GHL — opportunités SETTING + CLOSING (won)...")
-    setting_opps, closing_won_opps = fetch_ghl_raw()
-    print(f"  {len(setting_opps)} leads SETTING (tout historique), {len(closing_won_opps)} closings gagnés (tout historique)")
+    print("\n[1/7] GHL — opportunités SETTING (leads, haut de l'entonnoir seulement)...")
+    setting_opps = ghl_search_opportunities(GHL_PIPELINES["setting"])
+    print(f"  {len(setting_opps)} leads SETTING (tout historique)")
 
-    # Fenêtre élargie au backfill complet — réutilisée à la fois pour le
-    # funnel hebdo (build_ventes filtre lui-même sur start_a/end_a) ET pour
-    # la série journalière (build_daily_series), pour éviter 2 pulls.
     backfill_start_dt = datetime(backfill_start.year, backfill_start.month, backfill_start.day, tzinfo=TZ)
 
-    print("[2/6] GHL — calendrier (RDV/visites, backfill complet)...")
+    print("[2/7] GHL — calendrier (RDV/visites, backfill complet)...")
     events = fetch_calendar_events(int(backfill_start_dt.timestamp() * 1000), int(end_a.timestamp() * 1000))
     print(f"  {len(events)} événements")
 
-    print("[3/6] Jobber — quotes (soumissions envoyées, lecture seule, backfill complet)...")
+    print("[3/7] Jobber — quotes (soumissions + vendus, source de vérité, backfill complet)...")
     jobber_quotes = []
     if JOBBER_REFRESH_TOKEN:
         try:
@@ -1091,15 +1262,17 @@ def main():
         except Exception as e:
             print(f"  ! Jobber indisponible : {e}", file=sys.stderr)
     else:
-        print("  ! JOBBER_REFRESH_TOKEN absent — Soumissions envoyées = 0", file=sys.stderr)
+        print("  ! JOBBER_REFRESH_TOKEN absent — Soumissions/Closings = 0", file=sys.stderr)
 
-    ventes, funnel, closings_a = build_ventes(setting_opps, closing_won_opps, events, jobber_quotes, start_a, end_a)
+    # NOTE : Soumissions/Closings/$ vendu viennent maintenant de Jobber (source
+    # de vérité, décision 2026-08-18) — GHL sert seulement au haut de l'entonnoir.
+    ventes, funnel, closings_a = build_ventes(setting_opps, events, jobber_quotes, start_a, end_a)
     leads_a_ghl = funnel[0]["n"]
     n_close_a = len(closings_a)
-    closings_b = count_closings_in_window(closing_won_opps, start_b, end_b)
+    closings_b = jobber_won_quotes_in_window(jobber_quotes, start_b, end_b)
     n_close_b = len(closings_b)
 
-    print("\n=== VENTES (7 derniers jours) ===")
+    print("\n=== VENTES (7 derniers jours, closings via Jobber) ===")
     for k in ventes:
         print(f"  {k['label']}: {k['disp']}")
     print("\n=== FUNNEL ===")
@@ -1107,7 +1280,7 @@ def main():
         print(f"  {f['s']}: {f['n']}")
 
     if META_TOKEN and META_AD_ACCOUNT:
-        print("\n[4/6] Meta — insights journaliers (time_increment=1, backfill complet)...")
+        print("\n[4/7] Meta — insights journaliers compte (time_increment=1, backfill complet)...")
         try:
             meta_daily_rows = meta_insights_daily(backfill_start, now.date())
             print(f"  {len(meta_daily_rows)} lignes journalières Meta")
@@ -1117,7 +1290,7 @@ def main():
     else:
         meta_daily_rows = []
 
-    daily = build_daily_series(backfill_start, now.date(), setting_opps, closing_won_opps, events, jobber_quotes, meta_daily_rows)
+    daily = build_daily_series(backfill_start, now.date(), setting_opps, events, jobber_quotes, meta_daily_rows)
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(DAILY_PATH, "w") as f:
         json.dump(daily, f, indent=2, ensure_ascii=False)
@@ -1127,7 +1300,7 @@ def main():
     fbads = None
     acq = None
     if META_TOKEN and META_AD_ACCOUNT:
-        print("\n[5/6] Meta — insights ad set + ad, 2 fenêtres (FB Ads)...")
+        print("\n[5/7] Meta — insights ad set + ad, 2 fenêtres (FB Ads)...")
         fbads, spend_a, leads_a_meta, spend_b, leads_b_meta = build_fbads(
             start_a.date(), end_a.date(), start_b.date(), end_b.date()
         )
@@ -1140,13 +1313,21 @@ def main():
             print(f"  [{r['type'].upper()}] {r['title']}")
             print(f"    {r['text']}")
 
-        print("\n[6/6] GHL — attribution first-touch (revenu/ROAS par créatif)...")
+        print("\n[6/7] Meta — insights niveau AD, backfill complet (pour Créatifs YTD)...")
         try:
-            creative_revenue = build_creative_revenue(closings_a, fbads["ads"], start_a.date(), end_a.date())
+            meta_ad_daily_rows = meta_ad_insights_daily(backfill_start, now.date())
+            print(f"  {len(meta_ad_daily_rows)} lignes journalières par créa")
+        except Exception as e:
+            meta_ad_daily_rows = []
+            print(f"  ! Meta ad daily indisponible : {e}", file=sys.stderr)
+
+        print("\n[7/7] GHL — attribution first-touch YTD (match email/tél Jobber -> GHL)...")
+        try:
+            creative_revenue = build_creative_revenue_ytd(jobber_quotes, meta_ad_daily_rows, backfill_start, now.date())
             fbads["creative_revenue"] = creative_revenue
-            n_attr = len(creative_revenue["creatives"])
+            n_ytd = len(creative_revenue["creatives_ytd"])
             n_unattr = creative_revenue["unattributed"]["closings"]
-            print(f"  {n_attr} créatif(s) avec closing(s) attribué(s), {n_unattr} closing(s) non attribué(s) (pas d'adId — normal si entré par téléphone)")
+            print(f"  {n_ytd} créatif(s) au total (avec ou sans closing), {n_unattr} closing(s) non attribué(s) (pas de match GHL — normal si entré par téléphone)")
             print(f"  {len(creative_revenue['recommendations'])} recommandation(s) créatif")
             for r in creative_revenue["recommendations"]:
                 print(f"  [{r['type'].upper()}] {r['title']}")

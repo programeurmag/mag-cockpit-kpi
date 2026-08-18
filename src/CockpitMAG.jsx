@@ -742,17 +742,31 @@ function FbAdsTable({ rows, kind }) {
    exclu du tableau mais pas du CA réel (voir note sous le tableau).
    ============================================================ */
 function fmtRoas(v) { return v == null ? "—" : `${v.toFixed(1).replace(".", ",")}x`; }
+function fmtMonthLabel(ym) {
+  const [y, m] = ym.split("-");
+  const MOIS = ["", "Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc"];
+  return `${MOIS[parseInt(m, 10)]} ${y}`;
+}
+function periodsFrom(rows) { return [...new Set(rows.map((r) => r.period))].sort().reverse(); }
+
+const CREATIVE_GRANULARITY = [
+  { key: "ytd", label: "YTD (total)" },
+  { key: "month", label: "Par mois" },
+  { key: "week", label: "Par semaine" },
+];
 
 function CreativesTable({ creatives }) {
-  if (!creatives.length) return <p className="text-xs" style={{ color: C.muted }}>Aucun closing attribué à une pub sur cette fenêtre.</p>;
+  if (!creatives.length) return <p className="text-xs" style={{ color: C.muted }}>Aucune pub avec dépense ou impressions sur cette période.</p>;
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-[11px]" style={{ borderCollapse: "collapse", minWidth: 640 }}>
+      <table className="w-full text-[11px]" style={{ borderCollapse: "collapse", minWidth: 720 }}>
         <thead>
           <tr style={{ color: C.muted, borderBottom: `1px solid ${C.line}` }}>
             <th className="py-1.5 pr-2"></th>
             <th className="text-left py-1.5 pr-2">Créa</th>
             <th className="text-right py-1.5 px-2">Dépense</th>
+            <th className="text-right py-1.5 px-2">CPL</th>
+            <th className="text-right py-1.5 px-2">Impr.</th>
             <th className="text-right py-1.5 px-2">Jobs vendues</th>
             <th className="text-right py-1.5 px-2">$ closé</th>
             <th className="text-right py-1.5 px-2">Coût/job</th>
@@ -762,9 +776,10 @@ function CreativesTable({ creatives }) {
         <tbody>
           {creatives.map((c) => {
             const roasGood = c.roas != null && c.roas >= 5;
-            const roasBad = c.roas != null && c.roas < 3;
+            const roasBad = c.roas != null && c.roas < 3 && c.closings > 0;
+            const flagSample = c.closings > 0 && !c.significant;
             return (
-              <tr key={c.ad_id} style={{ borderBottom: `1px solid ${C.line}`, opacity: c.significant ? 1 : 0.6 }}>
+              <tr key={`${c.ad_id}-${c.period || "ytd"}`} style={{ borderBottom: `1px solid ${C.line}`, opacity: c.closings === 0 ? 0.75 : 1 }}>
                 <td className="py-1.5 pr-2">
                   {c.thumbnail ? (
                     <img src={c.thumbnail} alt="" width={32} height={32} style={{ borderRadius: 4, objectFit: "cover", display: "block" }} />
@@ -775,9 +790,11 @@ function CreativesTable({ creatives }) {
                 <td className="py-1.5 pr-2" style={{ color: C.text }}>
                   {c.name}
                   <div style={{ color: C.muted }}>{c.adset_name || "?"} · {c.angle}</div>
-                  {!c.significant && <span className="text-[10px]" style={{ color: C.amber }}>échantillon faible</span>}
+                  {flagSample && <span className="text-[10px]" style={{ color: C.amber }}>échantillon faible</span>}
                 </td>
-                <td className="text-right py-1.5 px-2" style={{ color: C.text }}>{c.spend != null ? money(c.spend) : "— (hors fenêtre)"}</td>
+                <td className="text-right py-1.5 px-2" style={{ color: C.text }}>{c.spend != null ? money(c.spend) : "—"}</td>
+                <td className="text-right py-1.5 px-2" style={{ color: C.muted }}>{c.cpl != null ? money(c.cpl) : "—"}</td>
+                <td className="text-right py-1.5 px-2" style={{ color: C.muted }}>{c.impressions != null ? c.impressions.toLocaleString("fr-CA") : "—"}</td>
                 <td className="text-right py-1.5 px-2" style={{ color: C.text }}>{c.closings}</td>
                 <td className="text-right py-1.5 px-2" style={{ color: C.text }}>{money(c.won_value)}</td>
                 <td className="text-right py-1.5 px-2" style={{ color: C.muted }}>{c.cost_per_job != null ? money(c.cost_per_job) : "—"}</td>
@@ -793,19 +810,61 @@ function CreativesTable({ creatives }) {
 
 function CreativesPanel({ fbads }) {
   const cr = fbads?.creative_revenue;
+  const [granularity, setGranularity] = useState("ytd");
+  const monthPeriods = useMemo(() => (cr ? periodsFrom(cr.creatives_by_month || []) : []), [cr]);
+  const weekPeriods = useMemo(() => (cr ? periodsFrom(cr.creatives_by_week || []) : []), [cr]);
+  const [selectedMonth, setSelectedMonth] = useState(null);
+  const [selectedWeek, setSelectedWeek] = useState(null);
+
   if (!cr) return null;
   const recos = cr.recommendations || [];
   const unattr = cr.unattributed;
+
+  let rows, periodNote;
+  if (granularity === "month") {
+    const period = selectedMonth || monthPeriods[0];
+    rows = (cr.creatives_by_month || []).filter((r) => r.period === period);
+    periodNote = period ? fmtMonthLabel(period) : "aucune donnée";
+  } else if (granularity === "week") {
+    const period = selectedWeek || weekPeriods[0];
+    rows = (cr.creatives_by_week || []).filter((r) => r.period === period);
+    periodNote = period ? `semaine du ${fmtDateShort(period)}` : "aucune donnée";
+  } else {
+    rows = cr.creatives_ytd || [];
+    periodNote = `YTD complet (${cr.window?.since} → ${cr.window?.until})`;
+  }
+  rows = [...rows].sort((a, b) => (b.roas ?? -1) - (a.roas ?? -1));
+
   return (
     <div className="mt-3 space-y-3">
       <Panel
         title="Créatifs — revenu & ROAS (attribution first-touch)"
-        right={cr.window ? <span className="text-[11px]" style={{ color: C.muted }}>{cr.window.since} → {cr.window.until}</span> : null}
+        right={
+          <div className="flex items-center gap-2">
+            <select value={granularity} onChange={(e) => setGranularity(e.target.value)}
+              className="text-[11px] px-2 py-1 rounded" style={{ background: C.panel2, border: `1px solid ${C.line}`, color: C.text }}>
+              {CREATIVE_GRANULARITY.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </select>
+            {granularity === "month" && monthPeriods.length > 0 && (
+              <select value={selectedMonth || monthPeriods[0]} onChange={(e) => setSelectedMonth(e.target.value)}
+                className="text-[11px] px-2 py-1 rounded" style={{ background: C.panel2, border: `1px solid ${C.line}`, color: C.text }}>
+                {monthPeriods.map((p) => <option key={p} value={p}>{fmtMonthLabel(p)}</option>)}
+              </select>
+            )}
+            {granularity === "week" && weekPeriods.length > 0 && (
+              <select value={selectedWeek || weekPeriods[0]} onChange={(e) => setSelectedWeek(e.target.value)}
+                className="text-[11px] px-2 py-1 rounded" style={{ background: C.panel2, border: `1px solid ${C.line}`, color: C.text }}>
+                {weekPeriods.map((p) => <option key={p} value={p}>sem. du {fmtDateShort(p)}</option>)}
+              </select>
+            )}
+          </div>
+        }
       >
-        <CreativesTable creatives={cr.creatives} />
+        <p className="text-[11px] mb-2" style={{ color: C.muted }}>{periodNote} · {rows.length} créa(s) — toutes celles avec dépense ou impressions, pas juste celles qui ont vendu</p>
+        <CreativesTable creatives={rows} />
         {unattr && unattr.closings > 0 && (
           <p className="text-[11px] mt-2" style={{ color: C.muted }}>
-            + {unattr.closings} job(s) ({money(unattr.won_value)}) sans attribution paid (téléphone, autre canal) — exclu(s) du tableau, mais pas du CA réel.
+            + {unattr.closings} job(s) ({money(unattr.won_value)}) sans attribution paid (téléphone, référencement, autre canal) — exclu(s) du tableau, mais pas du CA réel.
           </p>
         )}
       </Panel>
