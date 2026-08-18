@@ -508,6 +508,10 @@ const FBADS_TONE = {
   fatigue: "watch",
   angle: "push",
   diversite: "watch",
+  piege_cpl: "fix",
+  scale_roas: "push",
+  echantillon_faible: "watch",
+  angle_roas: "push",
 };
 const FBADS_LABEL = {
   couper: "Couper",
@@ -515,6 +519,10 @@ const FBADS_LABEL = {
   fatigue: "Fatigue créative",
   angle: "Angle gagnant",
   diversite: "Diversité",
+  piege_cpl: "Piège CPL",
+  scale_roas: "Scale (ROAS)",
+  echantillon_faible: "Échantillon faible",
+  angle_roas: "Angle gagnant (ROAS)",
 };
 
 /* ---------- UI ---------- */
@@ -728,6 +736,94 @@ function FbAdsTable({ rows, kind }) {
   );
 }
 
+/* ============================================================
+   CRÉATIFS — revenu + ROAS, attribution FIRST-TOUCH (attributionSource.adId
+   côté GHL). Un lead entré par téléphone n'a pas d'adId -> "non attribué",
+   exclu du tableau mais pas du CA réel (voir note sous le tableau).
+   ============================================================ */
+function fmtRoas(v) { return v == null ? "—" : `${v.toFixed(1).replace(".", ",")}x`; }
+
+function CreativesTable({ creatives }) {
+  if (!creatives.length) return <p className="text-xs" style={{ color: C.muted }}>Aucun closing attribué à une pub sur cette fenêtre.</p>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-[11px]" style={{ borderCollapse: "collapse", minWidth: 640 }}>
+        <thead>
+          <tr style={{ color: C.muted, borderBottom: `1px solid ${C.line}` }}>
+            <th className="py-1.5 pr-2"></th>
+            <th className="text-left py-1.5 pr-2">Créa</th>
+            <th className="text-right py-1.5 px-2">Dépense</th>
+            <th className="text-right py-1.5 px-2">Jobs vendues</th>
+            <th className="text-right py-1.5 px-2">$ closé</th>
+            <th className="text-right py-1.5 px-2">Coût/job</th>
+            <th className="text-right py-1.5 pl-2">ROAS</th>
+          </tr>
+        </thead>
+        <tbody>
+          {creatives.map((c) => {
+            const roasGood = c.roas != null && c.roas >= 5;
+            const roasBad = c.roas != null && c.roas < 3;
+            return (
+              <tr key={c.ad_id} style={{ borderBottom: `1px solid ${C.line}`, opacity: c.significant ? 1 : 0.6 }}>
+                <td className="py-1.5 pr-2">
+                  {c.thumbnail ? (
+                    <img src={c.thumbnail} alt="" width={32} height={32} style={{ borderRadius: 4, objectFit: "cover", display: "block" }} />
+                  ) : (
+                    <div style={{ width: 32, height: 32, borderRadius: 4, background: C.line }} />
+                  )}
+                </td>
+                <td className="py-1.5 pr-2" style={{ color: C.text }}>
+                  {c.name}
+                  <div style={{ color: C.muted }}>{c.adset_name || "?"} · {c.angle}</div>
+                  {!c.significant && <span className="text-[10px]" style={{ color: C.amber }}>échantillon faible</span>}
+                </td>
+                <td className="text-right py-1.5 px-2" style={{ color: C.text }}>{c.spend != null ? money(c.spend) : "— (hors fenêtre)"}</td>
+                <td className="text-right py-1.5 px-2" style={{ color: C.text }}>{c.closings}</td>
+                <td className="text-right py-1.5 px-2" style={{ color: C.text }}>{money(c.won_value)}</td>
+                <td className="text-right py-1.5 px-2" style={{ color: C.muted }}>{c.cost_per_job != null ? money(c.cost_per_job) : "—"}</td>
+                <td className="text-right py-1.5 pl-2" style={{ color: roasGood ? C.teal : roasBad ? C.red : C.text, fontWeight: 600 }}>{fmtRoas(c.roas)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CreativesPanel({ fbads }) {
+  const cr = fbads?.creative_revenue;
+  if (!cr) return null;
+  const recos = cr.recommendations || [];
+  const unattr = cr.unattributed;
+  return (
+    <div className="mt-3 space-y-3">
+      <Panel
+        title="Créatifs — revenu & ROAS (attribution first-touch)"
+        right={cr.window ? <span className="text-[11px]" style={{ color: C.muted }}>{cr.window.since} → {cr.window.until}</span> : null}
+      >
+        <CreativesTable creatives={cr.creatives} />
+        {unattr && unattr.closings > 0 && (
+          <p className="text-[11px] mt-2" style={{ color: C.muted }}>
+            + {unattr.closings} job(s) ({money(unattr.won_value)}) sans attribution paid (téléphone, autre canal) — exclu(s) du tableau, mais pas du CA réel.
+          </p>
+        )}
+      </Panel>
+      {recos.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {recos.map((r, i) => (
+            <AdviceRow key={i} a={{
+              tone: FBADS_TONE[r.type] || "watch",
+              title: `[${FBADS_LABEL[r.type] || r.type}] ${r.title}`,
+              text: r.text,
+            }} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FbAdsSection({ fbads }) {
   if (!fbads) return null;
   const recos = fbads.recommendations || [];
@@ -767,6 +863,8 @@ function FbAdsSection({ fbads }) {
           <FbAdsTable rows={ads.slice(0, 10)} kind="ad" />
         </Panel>
       </div>
+
+      <CreativesPanel fbads={fbads} />
     </div>
   );
 }

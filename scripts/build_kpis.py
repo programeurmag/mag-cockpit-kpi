@@ -123,6 +123,13 @@ FBADS_MIN_LEADS_SIGNIFICANT = 5     # OU ce nombre de leads min
 FBADS_FREQ_FATIGUE = 2.5            # fréquence au-dessus de ça = zone de fatigue
 FBADS_DIVERSITY_SHARE = 0.5         # une créa qui porte >= 50% de la dépense = flag
 
+# Revenu/ROAS par créatif — seuils provisionnels basés sur le ROAS moyen de
+# compte observé (~4-5x). Ajuste si Justin donne des cibles précises.
+CREATIVE_ROAS_LOW = 3.0             # sous ça avec un CPL bas -> piège "leads cheap qui closent pas"
+CREATIVE_ROAS_HIGH = 5.0            # au-dessus -> scale, peu importe le CPL
+CREATIVE_MIN_CLOSINGS_SIGNIFICANT = 5   # sous ça -> échantillon trop petit, flag "non fiable"
+CREATIVE_MIN_CLOSINGS_ANGLE = 3         # minimum par angle pour la comparaison ROAS
+
 # Cibles — DOIT rester synchro avec CLOSE_FLOOR/CLOSE_CEIL et targetLabel dans
 # docs/cockpit-kpi-mag.jsx (une seule source de vérité, voir CLAUDE.md).
 TARGETS = {
@@ -211,6 +218,11 @@ def ghl_calendar_events(calendar_id, start_ms, end_ms):
     return res.get("events", [])
 
 
+def ghl_get_contact(contact_id):
+    res = http_get_json(f"{GHL_API}/contacts/{contact_id}", headers=ghl_headers())
+    return res.get("contact", {})
+
+
 def jobber_access_token():
     """ATTENTION : si Jobber fait un jour tourner (rotate) le refresh token,
     ce script écrit le nouveau en LOCAL (.env) mais ne peut pas mettre à jour
@@ -276,6 +288,12 @@ def jobber_recent_quotes(access_token, since_dt, max_pages=10):
 def meta_get(path, params):
     return http_get_json(f"https://graph.facebook.com/{META_API_VERSION}/{path}",
                           {**params, "access_token": META_TOKEN})
+
+
+def meta_ad_creative(ad_id):
+    """Lecture seule. Nom + thumbnail du créatif — un appel par ad_id impliqué
+    dans un closing (petit nombre, pas tout le compte)."""
+    return meta_get(str(ad_id), {"fields": "name,adset{name},creative{id,name,thumbnail_url,title}"})
 
 
 def meta_insights(level, since, until):
@@ -809,6 +827,171 @@ def build_fbads(since_a, until_a, since_b, until_b):
 
 
 # =============================================================================
+# REVENU + ROAS PAR CRÉATIF — retrace les ventes jusqu'à la pub via
+# attribution FIRST-TOUCH GHL (attributionSource.adId, pas last-touch : on
+# crédite la pub qui a généré le lead). Un lead entré par téléphone n'a pas
+# d'adId -> "unattributed", le revenu attribué < CA total. C'est voulu :
+# on compare seulement le paid entre lui, pas le paid au total.
+# =============================================================================
+
+def reco_creative_trap(creatives):
+    """CPL bas + ROAS bas = leads cheap qui closent pas. Le CPL seul cache ça."""
+    out = []
+    for c in creatives:
+        if c["roas"] is None or c["cpl"] is None or not c["significant"]:
+            continue
+        if c["cpl"] < FBADS_CPL_SCALE and c["roas"] < CREATIVE_ROAS_LOW:
+            out.append({
+                "type": "piege_cpl", "level": "creative", "target": c["name"],
+                "title": f"Leads pas chers, mauvais jobs — {c['name']}",
+                "text": (f"CPL à {money(c['cpl'])} (sous ta cible basse), mais ROAS de seulement {c['roas']}x "
+                         f"sur {c['closings']} jobs vendues ({money(c['won_value'])} closé / {money(c['spend'])} "
+                         f"dépensé). Ce créatif attire des leads pas chers qui closent pas — ou closent petit. "
+                         f"Le CPL seul cachait ce problème."),
+            })
+    return out
+
+
+def reco_creative_scale(creatives):
+    """ROAS fort = scale, peu importe le CPL."""
+    out = []
+    for c in creatives:
+        if c["roas"] is None or c["cpl"] is None or not c["significant"]:
+            continue
+        if c["roas"] >= CREATIVE_ROAS_HIGH:
+            out.append({
+                "type": "scale_roas", "level": "creative", "target": c["name"],
+                "title": f"Scale — {c['name']} ramène le vrai argent",
+                "text": (f"ROAS {c['roas']}x sur {c['closings']} jobs vendues ({money(c['won_value'])} closé / "
+                         f"{money(c['spend'])} dépensé), même avec un CPL à {money(c['cpl'])}. "
+                         f"C'est lui qui paie la facture — priorise le budget ici."),
+            })
+    return out
+
+
+def reco_creative_sample(creatives):
+    """Échantillon trop petit pour trancher — affiché quand même, marqué non fiable."""
+    out = []
+    for c in creatives:
+        if c["roas"] is not None and not c["significant"]:
+            out.append({
+                "type": "echantillon_faible", "level": "creative", "target": c["name"],
+                "title": f"Échantillon trop petit — {c['name']}",
+                "text": (f"Seulement {c['closings']} job(s) vendue(s) sur la fenêtre — ROAS ({c['roas']}x) "
+                         f"pas fiable statistiquement (< {CREATIVE_MIN_CLOSINGS_SIGNIFICANT} jobs). "
+                         f"À surveiller, pas à décider dessus."),
+            })
+    return out
+
+
+def reco_angle_roas(creatives):
+    """Compare les angles sur le ROAS (pas juste le CPL) — même logique que
+    reco_angle() côté ad set, mais sur le revenu réel."""
+    buckets = {}
+    for c in creatives:
+        if c["spend"] is None or c["roas"] is None:
+            continue
+        angle = c["angle"]
+        b = buckets.setdefault(angle, {"won_value": 0.0, "spend": 0.0, "closings": 0})
+        b["won_value"] += c["won_value"]
+        b["spend"] += c["spend"]
+        b["closings"] += c["closings"]
+    scored = []
+    for angle, b in buckets.items():
+        if b["spend"] <= 0 or b["closings"] < CREATIVE_MIN_CLOSINGS_ANGLE:
+            continue
+        scored.append({"angle": angle, "roas": round(b["won_value"] / b["spend"], 2),
+                        "closings": b["closings"], "won_value": b["won_value"]})
+    scored.sort(key=lambda s: -s["roas"])
+    if len(scored) < 2 or scored[0]["angle"] == scored[-1]["angle"]:
+        return []
+    best, worst = scored[0], scored[-1]
+    return [{
+        "type": "angle_roas", "level": "creative", "target": best["angle"],
+        "title": f"Angle gagnant (ROAS) — {best['angle']}",
+        "text": (f"\"{best['angle']}\" à {best['roas']}x ROAS ({best['closings']} jobs, "
+                 f"{money(best['won_value'])} closé) bat \"{worst['angle']}\" à {worst['roas']}x "
+                 f"({worst['closings']} jobs, {money(worst['won_value'])} closé). Pas juste le CPL — "
+                 f"le vrai argent suit cet angle."),
+    }]
+
+
+def build_creative_revenue(closings_a, ads_merged, since_a, until_a):
+    """Bucket le $ closé par adId (first-touch), joint au spend/CPL déjà pull
+    (niveau ad, fenêtre A) + créatif Meta (thumbnail/nom, lecture seule)."""
+    by_ad = {}
+    unattributed_value = 0.0
+    unattributed_n = 0
+
+    for o in closings_a:
+        cid = o.get("contactId")
+        value = o.get("monetaryValue", 0) or 0
+        ad_id = None
+        utm_content = None
+        if cid:
+            try:
+                contact = ghl_get_contact(cid)
+                attr = contact.get("attributionSource") or {}
+                ad_id = attr.get("adId")
+                utm_content = attr.get("utmContent")
+            except Exception as e:
+                print(f"  ! contact {cid} indisponible : {e}", file=sys.stderr)
+        if not ad_id:
+            unattributed_value += value
+            unattributed_n += 1
+            continue
+        b = by_ad.setdefault(ad_id, {"won_value": 0.0, "closings": 0, "utm_content": utm_content})
+        b["won_value"] += value
+        b["closings"] += 1
+
+    ads_by_id = {r["id"]: r for r in ads_merged}
+    creatives = []
+    for ad_id, b in by_ad.items():
+        ad_row = ads_by_id.get(ad_id)
+        spend = ad_row["spend_a"] if ad_row else None
+        leads = ad_row["leads_a"] if ad_row else None
+        cpl = ad_row["cpl_a"] if ad_row else None
+        name = (ad_row["name"] if ad_row else None) or b["utm_content"] or ad_id
+        adset_name = ad_row.get("adset_name") if ad_row else None
+
+        thumbnail = None
+        try:
+            meta_info = meta_ad_creative(ad_id)
+            thumbnail = (meta_info.get("creative") or {}).get("thumbnail_url")
+            if not adset_name:
+                adset_name = (meta_info.get("adset") or {}).get("name")
+        except Exception as e:
+            print(f"  ! créatif {ad_id} indisponible : {e}", file=sys.stderr)
+
+        won_value = round(b["won_value"], 2)
+        cost_per_job = round(spend / b["closings"], 2) if spend and b["closings"] else None
+        roas = round(won_value / spend, 2) if spend else None
+
+        creatives.append({
+            "ad_id": ad_id, "name": name, "adset_name": adset_name,
+            "angle": classify_angle(name), "thumbnail": thumbnail,
+            "spend": spend, "leads": leads, "cpl": cpl,
+            "closings": b["closings"], "won_value": won_value,
+            "cost_per_job": cost_per_job, "roas": roas,
+            "significant": b["closings"] >= CREATIVE_MIN_CLOSINGS_SIGNIFICANT,
+        })
+
+    creatives.sort(key=lambda c: (c["roas"] if c["roas"] is not None else -1), reverse=True)
+
+    recos = (
+        reco_creative_trap(creatives) + reco_creative_scale(creatives) +
+        reco_creative_sample(creatives) + reco_angle_roas(creatives)
+    )
+
+    return {
+        "window": {"since": since_a.isoformat(), "until": until_a.isoformat()},
+        "creatives": creatives,
+        "unattributed": {"won_value": round(unattributed_value, 2), "closings": unattributed_n},
+        "recommendations": recos,
+    }
+
+
+# =============================================================================
 # Streaks / historique
 # =============================================================================
 
@@ -885,7 +1068,7 @@ def main():
     print(f"Fenêtre précédente : {start_b.isoformat()} -> {end_b.isoformat()}")
     print(f"Backfill journalier : {backfill_start.isoformat()} -> {now.date().isoformat()}")
 
-    print("\n[1/5] GHL — opportunités SETTING + CLOSING (won)...")
+    print("\n[1/6] GHL — opportunités SETTING + CLOSING (won)...")
     setting_opps, closing_won_opps = fetch_ghl_raw()
     print(f"  {len(setting_opps)} leads SETTING (tout historique), {len(closing_won_opps)} closings gagnés (tout historique)")
 
@@ -894,11 +1077,11 @@ def main():
     # la série journalière (build_daily_series), pour éviter 2 pulls.
     backfill_start_dt = datetime(backfill_start.year, backfill_start.month, backfill_start.day, tzinfo=TZ)
 
-    print("[2/5] GHL — calendrier (RDV/visites, backfill complet)...")
+    print("[2/6] GHL — calendrier (RDV/visites, backfill complet)...")
     events = fetch_calendar_events(int(backfill_start_dt.timestamp() * 1000), int(end_a.timestamp() * 1000))
     print(f"  {len(events)} événements")
 
-    print("[3/5] Jobber — quotes (soumissions envoyées, lecture seule, backfill complet)...")
+    print("[3/6] Jobber — quotes (soumissions envoyées, lecture seule, backfill complet)...")
     jobber_quotes = []
     if JOBBER_REFRESH_TOKEN:
         try:
@@ -924,7 +1107,7 @@ def main():
         print(f"  {f['s']}: {f['n']}")
 
     if META_TOKEN and META_AD_ACCOUNT:
-        print("\n[4/5] Meta — insights journaliers (time_increment=1, backfill complet)...")
+        print("\n[4/6] Meta — insights journaliers (time_increment=1, backfill complet)...")
         try:
             meta_daily_rows = meta_insights_daily(backfill_start, now.date())
             print(f"  {len(meta_daily_rows)} lignes journalières Meta")
@@ -944,7 +1127,7 @@ def main():
     fbads = None
     acq = None
     if META_TOKEN and META_AD_ACCOUNT:
-        print("\n[5/5] Meta — insights ad set + ad, 2 fenêtres (FB Ads)...")
+        print("\n[5/6] Meta — insights ad set + ad, 2 fenêtres (FB Ads)...")
         fbads, spend_a, leads_a_meta, spend_b, leads_b_meta = build_fbads(
             start_a.date(), end_a.date(), start_b.date(), end_b.date()
         )
@@ -956,6 +1139,20 @@ def main():
         for r in fbads["recommendations"]:
             print(f"  [{r['type'].upper()}] {r['title']}")
             print(f"    {r['text']}")
+
+        print("\n[6/6] GHL — attribution first-touch (revenu/ROAS par créatif)...")
+        try:
+            creative_revenue = build_creative_revenue(closings_a, fbads["ads"], start_a.date(), end_a.date())
+            fbads["creative_revenue"] = creative_revenue
+            n_attr = len(creative_revenue["creatives"])
+            n_unattr = creative_revenue["unattributed"]["closings"]
+            print(f"  {n_attr} créatif(s) avec closing(s) attribué(s), {n_unattr} closing(s) non attribué(s) (pas d'adId — normal si entré par téléphone)")
+            print(f"  {len(creative_revenue['recommendations'])} recommandation(s) créatif")
+            for r in creative_revenue["recommendations"]:
+                print(f"  [{r['type'].upper()}] {r['title']}")
+                print(f"    {r['text']}")
+        except Exception as e:
+            print(f"  ! Revenu par créatif indisponible : {e}", file=sys.stderr)
     else:
         print("\n! META_TOKEN/META_AD_ACCOUNT absents — acq et fbads non calculés", file=sys.stderr)
         acq = [
