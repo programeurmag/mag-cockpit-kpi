@@ -53,7 +53,7 @@ const STATUS = {
 
 const ICONS = {
   contact: Phone, rdv: CalendarCheck, close: Target, deal: DollarSign,
-  cpl: Megaphone, cps: DollarSign, cac: Target, leads: Users, spend: DollarSign,
+  cpl: Megaphone, cps: DollarSign, cac: Target, roas: Percent, leads: Users, spend: DollarSign,
   labor: Users, rework: Wrench, marge: Percent, rpp: Activity,
 };
 
@@ -296,6 +296,7 @@ function deriveKpis(sums) {
     cpl: sums.leads ? +(sums.spend / sums.leads).toFixed(2) : null,
     cac: sums.closings ? Math.round(sums.spend / sums.closings) : null,
     cps: sums.quotes ? +(sums.spend / sums.quotes).toFixed(2) : null,
+    roas: sums.spend ? +(sums.won_value / sums.spend).toFixed(2) : null,
     leads: sums.leads,
     spend: Math.round(sums.spend),
     conv: sums.leads ? +((100 * sums.closings) / sums.leads).toFixed(1) : null,
@@ -406,6 +407,7 @@ function buildPeriodView(daily, start, end) {
     mk("cpl", "Coût par lead", cur.cpl, cur.cpl != null ? money(cur.cpl) : "—"),
     mk("cps", "Coût par soumission", cur.cps, cur.cps != null ? money(cur.cps) : "—", null, "cible à définir"),
     mk("cac", "Coût d'acquisition client", cur.cac, cur.cac != null ? money(cur.cac) : "—"),
+    mk("roas", "ROAS", cur.roas, cur.roas != null ? `${cur.roas.toFixed(1).replace(".", ",")}x` : "—", null, "$ closé ÷ dépense pub · cible à définir"),
     mk("leads", "Leads générés", cur.leads, String(cur.leads), null,
       cur.conv != null ? `conversion lead→client ${cur.conv} %` : null),
     mk("spend", "Dépense pub", cur.spend, money(cur.spend), null),
@@ -415,8 +417,10 @@ function buildPeriodView(daily, start, end) {
   acq[1].delta = hasPrev ? { value: pctChangeD(cur.cps, prev.cps), unit: " %" } : null;
   acq[1].dir = "down";
   acq[2].delta = hasPrev ? { value: pctChangeD(cur.cac, prev.cac), unit: " %" } : null;
-  acq[3].delta = hasPrev ? { value: pctChangeD(cur.leads, prev.leads), unit: " %" } : null;
-  acq[4].delta = hasPrev ? { value: pctChangeD(cur.spend, prev.spend), unit: " %" } : null;
+  acq[3].delta = hasPrev ? { value: pctChangeD(cur.roas, prev.roas), unit: " %" } : null;
+  acq[3].dir = "up";
+  acq[4].delta = hasPrev ? { value: pctChangeD(cur.leads, prev.leads), unit: " %" } : null;
+  acq[5].delta = hasPrev ? { value: pctChangeD(cur.spend, prev.spend), unit: " %" } : null;
 
   const funnel = toFunnel(curSums);
   const cacLevers = hasPrev ? buildCacLevers(cur, prev) : null;
