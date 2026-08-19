@@ -2527,17 +2527,17 @@
     "quotes": 2,
     "closings": 2,
     "won_value": 11325.04,
-    "spend": 321.2
+    "spend": 323.03
   },
   {
     "d": "2026-08-19",
-    "leads": 2,
+    "leads": 3,
     "contacted": 0,
     "rdv": 0,
     "visits": 5,
     "quotes": 1,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 80.48
+    "spend": 92.01
   }
 ]
