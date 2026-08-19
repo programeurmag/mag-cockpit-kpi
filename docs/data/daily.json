@@ -2527,7 +2527,7 @@
     "quotes": 2,
     "closings": 2,
     "won_value": 11325.04,
-    "spend": 323.17
+    "spend": 323.19
   },
   {
     "d": "2026-08-19",
@@ -2538,6 +2538,6 @@
     "quotes": 3,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 124.42
+    "spend": 128.34
   }
 ]
