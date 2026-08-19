@@ -2491,7 +2491,7 @@
     "contacted": 1,
     "rdv": 4,
     "visits": 3,
-    "quotes": 2,
+    "quotes": 1,
     "closings": 1,
     "won_value": 1844.93,
     "spend": 254.38
@@ -2527,6 +2527,6 @@
     "quotes": 2,
     "closings": 2,
     "won_value": 11325.04,
-    "spend": 303.68
+    "spend": 315.81
   }
 ]
