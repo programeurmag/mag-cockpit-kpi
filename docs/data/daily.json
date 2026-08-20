@@ -2538,17 +2538,17 @@
     "quotes": 3,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 263.93
+    "spend": 263.95
   },
   {
     "d": "2026-08-20",
-    "leads": 0,
+    "leads": 1,
     "contacted": 0,
     "rdv": 0,
     "visits": 8,
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 38.26
+    "spend": 55.1
   }
 ]
