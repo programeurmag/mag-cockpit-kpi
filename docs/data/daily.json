@@ -2564,13 +2564,13 @@
   },
   {
     "d": "2026-08-22",
-    "leads": 3,
+    "leads": 4,
     "contacted": 0,
     "rdv": 0,
     "visits": 4,
-    "quotes": 1,
+    "quotes": 2,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 163.68
+    "spend": 172.22
   }
 ]
