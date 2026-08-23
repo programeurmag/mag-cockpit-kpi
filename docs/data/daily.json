@@ -2575,13 +2575,13 @@
   },
   {
     "d": "2026-08-23",
-    "leads": 0,
+    "leads": 1,
     "contacted": 0,
     "rdv": 0,
     "visits": 4,
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 26.32
+    "spend": 46.14
   }
 ]
