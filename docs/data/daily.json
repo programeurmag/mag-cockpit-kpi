@@ -2588,11 +2588,11 @@
     "d": "2026-08-24",
     "leads": 5,
     "contacted": 0,
-    "rdv": 0,
-    "visits": 3,
-    "quotes": 1,
+    "rdv": 1,
+    "visits": 4,
+    "quotes": 3,
     "closings": 1,
     "won_value": 1149.75,
-    "spend": 114.2
+    "spend": 128.19
   }
 ]
