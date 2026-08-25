@@ -2597,13 +2597,13 @@
   },
   {
     "d": "2026-08-25",
-    "leads": 2,
+    "leads": 3,
     "contacted": 0,
-    "rdv": 0,
-    "visits": 3,
+    "rdv": 1,
+    "visits": 4,
     "quotes": 3,
     "closings": 1,
     "won_value": 459.9,
-    "spend": 135.33
+    "spend": 148.74
   }
 ]
