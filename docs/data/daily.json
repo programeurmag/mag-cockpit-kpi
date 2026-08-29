@@ -2445,7 +2445,7 @@
     "d": "2026-08-11",
     "leads": 12,
     "contacted": 2,
-    "rdv": 11,
+    "rdv": 12,
     "visits": 4,
     "quotes": 8,
     "closings": 2,
@@ -2588,7 +2588,7 @@
     "d": "2026-08-24",
     "leads": 7,
     "contacted": 0,
-    "rdv": 4,
+    "rdv": 5,
     "visits": 4,
     "quotes": 4,
     "closings": 1,
@@ -2637,6 +2637,17 @@
     "quotes": 2,
     "closings": 2,
     "won_value": 3851.66,
-    "spend": 287.76
+    "spend": 320.47
+  },
+  {
+    "d": "2026-08-29",
+    "leads": 0,
+    "contacted": 0,
+    "rdv": 0,
+    "visits": 2,
+    "quotes": 0,
+    "closings": 0,
+    "won_value": 0.0,
+    "spend": 9.4
   }
 ]
