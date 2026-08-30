@@ -2648,17 +2648,17 @@
     "quotes": 1,
     "closings": 1,
     "won_value": 1149.75,
-    "spend": 233.58
+    "spend": 233.64
   },
   {
     "d": "2026-08-30",
-    "leads": 2,
+    "leads": 5,
     "contacted": 0,
     "rdv": 0,
     "visits": 1,
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 54.66
+    "spend": 151.18
   }
 ]
