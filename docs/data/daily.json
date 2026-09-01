@@ -2670,17 +2670,17 @@
     "quotes": 4,
     "closings": 3,
     "won_value": 6069.0599999999995,
-    "spend": 260.57
+    "spend": 260.71
   },
   {
     "d": "2026-09-01",
-    "leads": 0,
+    "leads": 4,
     "contacted": 0,
     "rdv": 0,
     "visits": 6,
-    "quotes": 0,
+    "quotes": 3,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 35.27
+    "spend": 110.85
   }
 ]
