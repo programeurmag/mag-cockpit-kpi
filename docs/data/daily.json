@@ -2703,7 +2703,7 @@
     "quotes": 2,
     "closings": 1,
     "won_value": 2414.48,
-    "spend": 279.8
+    "spend": 280.23
   },
   {
     "d": "2026-09-04",
@@ -2711,9 +2711,9 @@
     "contacted": 0,
     "rdv": 0,
     "visits": 3,
-    "quotes": 0,
-    "closings": 0,
-    "won_value": 0.0,
-    "spend": 55.15
+    "quotes": 1,
+    "closings": 1,
+    "won_value": 2184.53,
+    "spend": 108.07
   }
 ]
