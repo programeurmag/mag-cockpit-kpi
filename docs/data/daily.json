@@ -2718,13 +2718,24 @@
   },
   {
     "d": "2026-09-05",
-    "leads": 4,
+    "leads": 5,
     "contacted": 0,
     "rdv": 0,
     "visits": 1,
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 399.58
+    "spend": 408.95
+  },
+  {
+    "d": "2026-09-06",
+    "leads": 1,
+    "contacted": 0,
+    "rdv": 0,
+    "visits": 0,
+    "quotes": 0,
+    "closings": 0,
+    "won_value": 0.0,
+    "spend": 14.03
   }
 ]
