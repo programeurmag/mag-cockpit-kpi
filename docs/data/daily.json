@@ -2740,13 +2740,13 @@
   },
   {
     "d": "2026-09-07",
-    "leads": 0,
+    "leads": 1,
     "contacted": 0,
     "rdv": 0,
     "visits": 0,
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 275.15
+    "spend": 304.28
   }
 ]
