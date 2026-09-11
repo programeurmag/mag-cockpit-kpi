@@ -2753,7 +2753,7 @@
     "d": "2026-09-08",
     "leads": 3,
     "contacted": 1,
-    "rdv": 4,
+    "rdv": 6,
     "visits": 1,
     "quotes": 0,
     "closings": 0,
@@ -2763,8 +2763,8 @@
   {
     "d": "2026-09-09",
     "leads": 7,
-    "contacted": 0,
-    "rdv": 1,
+    "contacted": 1,
+    "rdv": 4,
     "visits": 1,
     "quotes": 0,
     "closings": 0,
@@ -2774,12 +2774,23 @@
   {
     "d": "2026-09-10",
     "leads": 8,
-    "contacted": 0,
-    "rdv": 0,
+    "contacted": 1,
+    "rdv": 1,
     "visits": 5,
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 446.75
+    "spend": 461.94
+  },
+  {
+    "d": "2026-09-11",
+    "leads": 0,
+    "contacted": 0,
+    "rdv": 0,
+    "visits": 6,
+    "quotes": 0,
+    "closings": 0,
+    "won_value": 0.0,
+    "spend": 13.24
   }
 ]
