@@ -2763,8 +2763,8 @@
   {
     "d": "2026-09-09",
     "leads": 7,
-    "contacted": 2,
-    "rdv": 5,
+    "contacted": 1,
+    "rdv": 4,
     "visits": 1,
     "quotes": 0,
     "closings": 0,
@@ -2786,8 +2786,8 @@
     "d": "2026-09-11",
     "leads": 14,
     "contacted": 0,
-    "rdv": 1,
-    "visits": 7,
+    "rdv": 4,
+    "visits": 6,
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
@@ -2797,22 +2797,33 @@
     "d": "2026-09-12",
     "leads": 6,
     "contacted": 0,
-    "rdv": 0,
+    "rdv": 1,
     "visits": 0,
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 472.01
+    "spend": 472.02
   },
   {
     "d": "2026-09-13",
-    "leads": 11,
+    "leads": 13,
     "contacted": 0,
     "rdv": 0,
     "visits": 4,
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 445.82
+    "spend": 544.32
+  },
+  {
+    "d": "2026-09-14",
+    "leads": 0,
+    "contacted": 0,
+    "rdv": 0,
+    "visits": 4,
+    "quotes": 0,
+    "closings": 0,
+    "won_value": 0.0,
+    "spend": 0.0
   }
 ]
