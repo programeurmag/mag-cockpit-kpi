@@ -2864,21 +2864,21 @@
     "leads": 6,
     "contacted": 0,
     "rdv": 0,
-    "visits": 3,
-    "quotes": 0,
-    "closings": 0,
-    "won_value": 0.0,
-    "spend": 488.43
-  },
-  {
-    "d": "2026-09-19",
-    "leads": 1,
-    "contacted": 0,
-    "rdv": 0,
     "visits": 2,
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 143.18
+    "spend": 488.59
+  },
+  {
+    "d": "2026-09-19",
+    "leads": 14,
+    "contacted": 0,
+    "rdv": 0,
+    "visits": 3,
+    "quotes": 0,
+    "closings": 0,
+    "won_value": 0.0,
+    "spend": 213.28
   }
 ]
