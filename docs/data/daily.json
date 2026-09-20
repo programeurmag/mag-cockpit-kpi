@@ -2857,7 +2857,7 @@
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 478.09
+    "spend": 478.11
   },
   {
     "d": "2026-09-18",
@@ -2868,17 +2868,17 @@
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 488.74
+    "spend": 488.75
   },
   {
     "d": "2026-09-19",
-    "leads": 14,
+    "leads": 20,
     "contacted": 0,
     "rdv": 0,
     "visits": 3,
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 284.52
+    "spend": 326.78
   }
 ]
