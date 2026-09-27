@@ -3,17 +3,6 @@
     "date": "2026-08-29",
     "contact": 0,
     "rdv": 18,
-    "close": 31,
-    "deal": 2738,
-    "cpl": 37.16,
-    "cac": 274,
-    "leads": 59,
-    "spend": 2192.7
-  },
-  {
-    "date": "2026-08-29",
-    "contact": 0,
-    "rdv": 18,
     "close": 0,
     "deal": 0,
     "cpl": 36.01,
@@ -1821,5 +1810,15 @@
     "cpl": 67.01,
     "leads": 33,
     "spend": 2211.4
+  },
+  {
+    "date": "2026-09-27",
+    "contact": 3,
+    "rdv": 44,
+    "close": 0,
+    "deal": 0,
+    "cpl": 66.3,
+    "leads": 34,
+    "spend": 2254.21
   }
 ]
