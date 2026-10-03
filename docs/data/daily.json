@@ -3017,22 +3017,22 @@
     "d": "2026-10-02",
     "leads": 1,
     "contacted": 0,
-    "rdv": 1,
+    "rdv": 0,
     "visits": 0,
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 61.63
+    "spend": 61.64
   },
   {
     "d": "2026-10-03",
     "leads": 1,
     "contacted": 0,
     "rdv": 0,
-    "visits": 1,
+    "visits": 0,
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 13.27
+    "spend": 36.04
   }
 ]
