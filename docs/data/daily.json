@@ -3033,6 +3033,17 @@
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 98.53
+    "spend": 101.23
+  },
+  {
+    "d": "2026-10-04",
+    "leads": 1,
+    "contacted": 0,
+    "rdv": 0,
+    "visits": 0,
+    "quotes": 0,
+    "closings": 0,
+    "won_value": 0.0,
+    "spend": 0.84
   }
 ]
