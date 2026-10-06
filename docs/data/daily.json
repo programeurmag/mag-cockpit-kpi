@@ -2973,7 +2973,7 @@
     "d": "2026-09-28",
     "leads": 4,
     "contacted": 1,
-    "rdv": 4,
+    "rdv": 5,
     "visits": 1,
     "quotes": 0,
     "closings": 0,
@@ -3017,7 +3017,7 @@
     "d": "2026-10-02",
     "leads": 1,
     "contacted": 0,
-    "rdv": 1,
+    "rdv": 3,
     "visits": 0,
     "quotes": 0,
     "closings": 0,
@@ -3055,6 +3055,17 @@
     "quotes": 0,
     "closings": 0,
     "won_value": 0.0,
-    "spend": 61.94
+    "spend": 70.67
+  },
+  {
+    "d": "2026-10-06",
+    "leads": 0,
+    "contacted": 0,
+    "rdv": 0,
+    "visits": 3,
+    "quotes": 0,
+    "closings": 0,
+    "won_value": 0.0,
+    "spend": 3.21
   }
 ]
