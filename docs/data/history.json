@@ -2,16 +2,6 @@
   {
     "date": "2026-09-29",
     "contact": 3,
-    "rdv": 37,
-    "close": 0,
-    "deal": 0,
-    "cpl": 51.47,
-    "leads": 30,
-    "spend": 1544.1
-  },
-  {
-    "date": "2026-09-29",
-    "contact": 3,
     "rdv": 38,
     "close": 0,
     "deal": 0,
@@ -1672,6 +1662,15 @@
   },
   {
     "date": "2026-11-14",
+    "contact": 0,
+    "rdv": 0,
+    "close": 0,
+    "deal": 0,
+    "leads": 0,
+    "spend": 0
+  },
+  {
+    "date": "2026-11-15",
     "contact": 0,
     "rdv": 0,
     "close": 0,
